@@ -1,0 +1,45 @@
+{
+  "name": "valor-ivx",
+  "version": "1.0.0",
+  "description": "Valor IVX - Advanced DCF Modeling Tool with Monte Carlo Simulations",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "dev": "python3 -m http.server 8000",
+    "serve": "python3 -m http.server 8000",
+    "test": "echo \"Open http://localhost:8000?tests to run in-browser tests\"",
+    "build": "echo \"No build step required - pure HTML/CSS/JS\"",
+    "lint": "echo \"Consider adding ESLint for JavaScript linting\"",
+    "format": "echo \"Consider adding Prettier for code formatting\""
+  },
+  "keywords": [
+    "dcf",
+    "financial-modeling",
+    "monte-carlo",
+    "valuation",
+    "investment-analysis",
+    "javascript",
+    "canvas",
+    "charts"
+  ],
+  "author": "Valor IVX Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/valor-ivx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/valor-ivx/issues"
+  },
+  "homepage": "https://github.com/your-org/valor-ivx#readme",
+  "devDependencies": {},
+  "dependencies": {},
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead"
+  ]
+} 

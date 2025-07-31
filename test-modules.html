@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Module Test - Valor IVX</title>
+</head>
+<body>
+    <h1>Valor IVX Module Test</h1>
+    <div id="output"></div>
+    
+    <script type="module">
+        // Test module imports
+        async function testModules() {
+            const output = document.getElementById('output');
+            
+            try {
+                // Test utils module
+                const { $, fmt, clamp } = await import('./js/modules/utils.js');
+                console.log('✅ Utils module loaded');
+                
+                // Test DCF engine module
+                const { dcfEngine, readInputs } = await import('./js/modules/dcf-engine.js');
+                console.log('✅ DCF engine module loaded');
+                
+                // Test Monte Carlo module
+                const { runMonteCarlo } = await import('./js/modules/monte-carlo.js');
+                console.log('✅ Monte Carlo module loaded');
+                
+                // Test charting module
+                const { renderFcfChart } = await import('./js/modules/charting.js');
+                console.log('✅ Charting module loaded');
+                
+                // Test scenarios module
+                const { loadScenarios } = await import('./js/modules/scenarios.js');
+                console.log('✅ Scenarios module loaded');
+                
+                // Test backend module
+                const { initBackendStatus } = await import('./js/modules/backend.js');
+                console.log('✅ Backend module loaded');
+                
+                // Test UI handlers module
+                const { logLine } = await import('./js/modules/ui-handlers.js');
+                console.log('✅ UI handlers module loaded');
+                
+                output.innerHTML = '<p style="color: green;">✅ All modules loaded successfully!</p>';
+                console.log('🎉 All modules loaded successfully!');
+                
+            } catch (error) {
+                output.innerHTML = `<p style="color: red;">❌ Module loading failed: ${error.message}</p>`;
+                console.error('❌ Module loading failed:', error);
+            }
+        }
+        
+        testModules();
+    </script>
+</body>
+</html> 
