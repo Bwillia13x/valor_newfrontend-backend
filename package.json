@@ -41,7 +41,7 @@
   },
   "homepage": "https://github.com/your-org/valor-ivx#readme",
   "devDependencies": {
-    "vitest": "^1.6.0",
+    "vitest": "^3.2.4",
     "@vitest/coverage-v8": "^1.6.0",
     "jsdom": "^24.0.0",
     "@playwright/test": "^1.45.0"
