@@ -14,6 +14,10 @@ A comprehensive Flask-based backend API for the Valor IVX financial modeling app
 ### Technical Features
 - **RESTful API**: Clean, RESTful endpoints following best practices
 - **Database Integration**: SQLAlchemy ORM with SQLite (dev) and PostgreSQL (prod)
+- **Enterprise Models**: Multi-tenant architecture with tenant isolation
+- **Database Migrations**: Alembic for schema management
+- **Rate Limiting**: Precise rate limiting with tenant-aware headers
+- **Metrics & Observability**: Prometheus metrics for monitoring
 - **CORS Support**: Cross-origin resource sharing for frontend integration
 - **Error Handling**: Comprehensive error handling with meaningful responses
 - **Testing**: Full test suite with pytest
@@ -49,11 +53,19 @@ backend/
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    pip install -r requirements.txt
+   pip install alembic  # For database migrations
    ```
 
-2. **Initialize database**:
+2. **Database setup**:
    ```bash
-   python run.py
+   # For development (SQLite)
+   export DB_URL=""  # Uses SQLite fallback
+   
+   # For production (PostgreSQL)
+   export DB_URL="postgresql://user:pass@localhost/valor_ivx"
+   
+   # Initialize and run migrations
+   alembic upgrade head
    ```
 
 3. **Start the server**:
@@ -75,6 +87,49 @@ The API will be available at `http://localhost:5002`
    docker build -t valor-ivx-backend .
    docker run -p 5002:5002 valor-ivx-backend
    ```
+
+## 🏢 Enterprise Features
+
+### Multi-Tenant Architecture
+The backend supports multi-tenant architecture with:
+- **Tenant Isolation**: Data separation by tenant ID
+- **Enterprise Models**: Dedicated database tables for tenant management
+- **Rate Limiting**: Per-tenant rate limiting with precise headers
+- **Audit Logging**: Comprehensive audit trails for compliance
+
+### Database Configuration
+```bash
+# Development (SQLite)
+export DB_URL=""  # Uses valor_ivx_enterprise.db
+
+# Production (PostgreSQL)
+export DB_URL="postgresql://user:pass@localhost/valor_ivx"
+
+# Alternative database path
+export VALOR_DB_PATH="/path/to/custom/database.db"
+```
+
+### Database Migrations
+```bash
+# Generate new migration
+alembic revision -m "description" --autogenerate
+
+# Apply migrations
+alembic upgrade head
+
+# Check migration status
+alembic current
+alembic history
+```
+
+### Metrics and Monitoring
+```bash
+# Enable Prometheus metrics
+export FEATURE_PROMETHEUS_METRICS=true
+
+# Access metrics endpoint
+curl http://localhost:5002/metrics
+```
 
 ## 📚 API Documentation
 

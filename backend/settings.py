@@ -5,6 +5,8 @@ from typing import List
 class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///valor_ivx.db"
+    DB_URL: str = ""  # Production database URL (PostgreSQL, etc.)
+    VALOR_DB_PATH: str = ""  # Alternative database path
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # Security

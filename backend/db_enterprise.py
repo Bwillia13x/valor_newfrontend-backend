@@ -1,49 +1,91 @@
-from __future__ import annotations
+"""
+Database configuration for enterprise models
+Provides engine and session factory for enterprise tables
+"""
 
 import os
-from typing import Optional
-
 from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.pool import StaticPool
 
-from .models.enterprise_models import EnterpriseBase
+from models.enterprise_models import EnterpriseBase
 
 
-def get_db_url() -> str:
+def get_database_url():
     """
-    Returns the DB connection URL. Prefers DB_URL; falls back to VALOR_DB_PATH SQLite file.
-    Example DB_URL:
-      - Postgres: postgresql+psycopg2://user:pass@localhost:5432/valor
-      - SQLite: sqlite:////absolute/path/to/valor.db
+    Get database URL with fallback logic:
+    1. DB_URL environment variable (for production)
+    2. VALOR_DB_PATH environment variable (alternative)
+    3. SQLite fallback for development
     """
-    db_url = os.getenv("DB_URL")
+    # Production database URL
+    db_url = os.environ.get('DB_URL')
     if db_url:
         return db_url
+    
+    # Alternative database path
+    valor_db_path = os.environ.get('VALOR_DB_PATH')
+    if valor_db_path:
+        return f"sqlite:///{valor_db_path}"
+    
+    # Development fallback
+    return "sqlite:///valor_ivx_enterprise.db"
 
-    # Fallback to existing SQLite path if present, otherwise in-repo sqlite file
-    sqlite_path = os.getenv("VALOR_DB_PATH", os.path.join(os.getcwd(), "backend", "instance", "valor.db"))
-    os.makedirs(os.path.dirname(sqlite_path), exist_ok=True)
-    return f"sqlite:///{sqlite_path}"
 
-
-def create_enterprise_engine(echo: bool = False) -> Engine:
-    db_url = get_db_url()
-    # For SQLite, enable pragmatic settings via connect_args
-    connect_args = {}
-    if db_url.startswith("sqlite:///"):
-        connect_args = {"check_same_thread": False}
-
-    engine = create_engine(db_url, echo=echo, future=True, connect_args=connect_args)
+# Create engine with appropriate configuration
+def create_enterprise_engine():
+    """Create SQLAlchemy engine for enterprise models"""
+    db_url = get_database_url()
+    
+    if db_url.startswith('sqlite'):
+        # SQLite configuration for development
+        engine = create_engine(
+            db_url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+            echo=False  # Set to True for SQL debugging
+        )
+    else:
+        # Production database (PostgreSQL, etc.)
+        engine = create_engine(
+            db_url,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            echo=False
+        )
+    
     return engine
 
 
-def get_enterprise_session_factory(engine: Optional[Engine] = None) -> sessionmaker:
-    if engine is None:
-        engine = create_enterprise_engine()
-    return sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
+# Create engine instance
+enterprise_engine = create_enterprise_engine()
+
+# Create session factory
+enterprise_session_factory = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=enterprise_engine
+)
+
+# Create scoped session for thread safety
+enterprise_session = scoped_session(enterprise_session_factory)
 
 
-# IMPORTANT:
-# We DO NOT call EnterpriseBase.metadata.create_all(engine) here.
-# Migrations (Alembic) will manage schema for the EnterpriseBase exclusively.
+def get_enterprise_session():
+    """Get enterprise database session"""
+    return enterprise_session()
+
+
+def init_enterprise_db():
+    """
+    Initialize enterprise database tables
+    Note: This should only be used for development/testing
+    Production should use Alembic migrations
+    """
+    EnterpriseBase.metadata.create_all(bind=enterprise_engine)
+
+
+def close_enterprise_db():
+    """Close enterprise database connections"""
+    enterprise_session.remove()
+    enterprise_engine.dispose()

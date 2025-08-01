@@ -32,6 +32,10 @@ MODEL_ERRORS_TOTAL: Optional[Counter] = None
 CIRCUIT_BREAKER_METRICS: Optional[Counter] = None
 DATA_PROVIDER_REQUESTS_TOTAL: Optional[Counter] = None
 DATA_PROVIDER_DURATION_SECONDS: Optional[Histogram] = None
+RATE_LIMIT_ALLOWED_TOTAL: Optional[Counter] = None
+RATE_LIMIT_BLOCKED_TOTAL: Optional[Counter] = None
+QUOTA_INCREMENT_SUCCESS_TOTAL: Optional[Counter] = None
+QUOTA_INCREMENT_FAILURE_TOTAL: Optional[Counter] = None
 
 # Optional extended labels for model/variant metrics to avoid cardinality blowup
 FEATURE_MODEL_VARIANT_METRICS: bool = getattr(settings, "FEATURE_MODEL_VARIANT_METRICS", False)
@@ -58,6 +62,8 @@ def _init_metrics() -> None:
     global ACTIVE_USERS, CACHE_HIT_RATIO
     global MODEL_INFERENCE_DURATION_SECONDS, MODEL_PREDICTIONS_TOTAL, MODEL_ERRORS_TOTAL
     global CIRCUIT_BREAKER_METRICS, DATA_PROVIDER_REQUESTS_TOTAL, DATA_PROVIDER_DURATION_SECONDS
+    global RATE_LIMIT_ALLOWED_TOTAL, RATE_LIMIT_BLOCKED_TOTAL
+    global QUOTA_INCREMENT_SUCCESS_TOTAL, QUOTA_INCREMENT_FAILURE_TOTAL
 
     reg = get_registry()
 
@@ -145,6 +151,38 @@ def _init_metrics() -> None:
             registry=reg,
         )
 
+    # Rate limiting metrics
+    if RATE_LIMIT_ALLOWED_TOTAL is None:
+        RATE_LIMIT_ALLOWED_TOTAL = Counter(
+            "rate_limit_allowed_total",
+            "Total requests allowed by rate limiter",
+            ["tenant", "limit_type"],
+            registry=reg,
+        )
+    if RATE_LIMIT_BLOCKED_TOTAL is None:
+        RATE_LIMIT_BLOCKED_TOTAL = Counter(
+            "rate_limit_blocked_total",
+            "Total requests blocked by rate limiter",
+            ["tenant", "limit_type"],
+            registry=reg,
+        )
+    
+    # Quota metrics
+    if QUOTA_INCREMENT_SUCCESS_TOTAL is None:
+        QUOTA_INCREMENT_SUCCESS_TOTAL = Counter(
+            "quota_increment_success_total",
+            "Total successful quota increments",
+            ["tenant", "quota_type"],
+            registry=reg,
+        )
+    if QUOTA_INCREMENT_FAILURE_TOTAL is None:
+        QUOTA_INCREMENT_FAILURE_TOTAL = Counter(
+            "quota_increment_failure_total",
+            "Total failed quota increments",
+            ["tenant", "quota_type"],
+            registry=reg,
+        )
+
 
 def init_app(app) -> None:
     if not settings.FEATURE_PROMETHEUS_METRICS:
@@ -221,3 +259,49 @@ def celery_task_failed(task_name: str, start_time: float) -> None:
         CELERY_TASKS_TOTAL.labels(task_name=task_name, status="failure").inc()
     if CELERY_TASK_DURATION_SECONDS is not None:
         CELERY_TASK_DURATION_SECONDS.labels(task_name=task_name).observe(time.time() - start_time)
+
+
+# Rate limiting metrics helpers
+def rate_limit_allowed(tenant: str, limit_type: str) -> None:
+    """Record a rate limit allow event"""
+    if not settings.FEATURE_PROMETHEUS_METRICS:
+        return
+    _init_metrics()
+    if RATE_LIMIT_ALLOWED_TOTAL is not None:
+        # Hash tenant to avoid cardinality issues
+        tenant_hash = str(hash(tenant) % 10000)
+        RATE_LIMIT_ALLOWED_TOTAL.labels(tenant=tenant_hash, limit_type=limit_type).inc()
+
+
+def rate_limit_blocked(tenant: str, limit_type: str) -> None:
+    """Record a rate limit block event"""
+    if not settings.FEATURE_PROMETHEUS_METRICS:
+        return
+    _init_metrics()
+    if RATE_LIMIT_BLOCKED_TOTAL is not None:
+        # Hash tenant to avoid cardinality issues
+        tenant_hash = str(hash(tenant) % 10000)
+        RATE_LIMIT_BLOCKED_TOTAL.labels(tenant=tenant_hash, limit_type=limit_type).inc()
+
+
+# Quota metrics helpers
+def quota_increment_success(tenant: str, quota_type: str) -> None:
+    """Record a successful quota increment"""
+    if not settings.FEATURE_PROMETHEUS_METRICS:
+        return
+    _init_metrics()
+    if QUOTA_INCREMENT_SUCCESS_TOTAL is not None:
+        # Hash tenant to avoid cardinality issues
+        tenant_hash = str(hash(tenant) % 10000)
+        QUOTA_INCREMENT_SUCCESS_TOTAL.labels(tenant=tenant_hash, quota_type=quota_type).inc()
+
+
+def quota_increment_failure(tenant: str, quota_type: str) -> None:
+    """Record a failed quota increment"""
+    if not settings.FEATURE_PROMETHEUS_METRICS:
+        return
+    _init_metrics()
+    if QUOTA_INCREMENT_FAILURE_TOTAL is not None:
+        # Hash tenant to avoid cardinality issues
+        tenant_hash = str(hash(tenant) % 10000)
+        QUOTA_INCREMENT_FAILURE_TOTAL.labels(tenant=tenant_hash, quota_type=quota_type).inc()

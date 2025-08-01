@@ -1,214 +1,313 @@
-# Production Setup Guide
+# Valor IVX Production Setup Guide
 
-This guide describes how to securely deploy the Valor IVX application in production. It covers environment configuration, secrets management, TLS termination, security headers, logging/metrics, and high-level deployment steps.
+This guide covers the production deployment of the Valor IVX backend with enterprise features, database migrations, and monitoring.
 
-[Canonical Notice]
-If any other document conflicts with this guide, defer to:
-- README.md → “How to run, test, and deploy”
-- STARTUP_GUIDE.md for local DevX
-- This guide for production posture and deployment
+## 🏗️ Architecture Overview
 
-## Port Conventions (Production Defaults)
-- Backend API: http://localhost:5002 (behind a reverse proxy)
-- Frontend: http://localhost:8000 (static served or via CDN/proxy)
+### Components
+- **Flask Backend**: Main API server
+- **PostgreSQL Database**: Production database for enterprise models
+- **Redis**: Caching and session storage
+- **Prometheus**: Metrics collection
+- **Grafana**: Metrics visualization (optional)
 
-## Environment and Secrets
+## 🗄️ Database Setup
 
-### Principles
-- Never commit secrets to the repository.
-- Use environment variables only for secrets and configuration.
-- Prefer CI/CD secret stores (e.g., GitHub Actions Secrets, AWS SSM Parameter Store, GCP Secret Manager, HashiCorp Vault).
-- Use separate configs per environment (dev/staging/prod).
+### PostgreSQL Configuration
 
-### Core Variables (Backend)
-- FLASK_ENV=production
-- HOST=0.0.0.0
-- PORT=5002
-- DATABASE_URL=postgresql://USER:PASS@HOST/DB
-- SECRET_KEY=“strong-secret” (environment only)
-- JWT_SECRET_KEY=“strong-jwt-secret” (environment only)
-- FEATURE_PROMETHEUS_METRICS=true|false
-- PROMETHEUS_MULTIPROC_DIR=/var/run/prom (for Gunicorn multiprocess metrics)
-- LOG_JSON=true
-- LOG_LEVEL=INFO
-- CORS_ORIGINS=https://your-frontend-domain.tld
+1. **Install PostgreSQL**:
+   ```bash
+   # Ubuntu/Debian
+   sudo apt update
+   sudo apt install postgresql postgresql-contrib
+   
+   # CentOS/RHEL
+   sudo yum install postgresql postgresql-server
+   sudo postgresql-setup initdb
+   sudo systemctl start postgresql
+   ```
 
-Example export (for testing locally only; prefer CI/CD injection in real deployments):
+2. **Create Database and User**:
+   ```bash
+   sudo -u postgres psql
+   
+   CREATE DATABASE valor_ivx;
+   CREATE USER valor_user WITH PASSWORD 'secure_password';
+   GRANT ALL PRIVILEGES ON DATABASE valor_ivx TO valor_user;
+   ALTER USER valor_user CREATEDB;
+   \q
+   ```
+
+3. **Environment Variables**:
+   ```bash
+   # Database connection
+   export DB_URL="postgresql://valor_user:secure_password@localhost/valor_ivx"
+   
+   # Alternative: Use connection string with SSL
+   export DB_URL="postgresql://valor_user:secure_password@localhost/valor_ivx?sslmode=require"
+   ```
+
+### Database Migrations
+
+1. **Install Alembic**:
+   ```bash
+   pip install alembic psycopg2-binary
+   ```
+
+2. **Run Migrations**:
+   ```bash
+   cd backend
+   alembic upgrade head
+   ```
+
+3. **Verify Migration Status**:
+   ```bash
+   alembic current
+   alembic history
+   ```
+
+## 🔧 Environment Configuration
+
+### Required Environment Variables
+
 ```bash
-export FLASK_ENV=production
-export PORT=5002
-export DATABASE_URL=postgresql://user:pass@db/valor_ivx
-export SECRET_KEY='replace-with-strong'
-export JWT_SECRET_KEY='replace-with-strong'
+# Database
+export DB_URL="postgresql://user:pass@localhost/valor_ivx"
+
+# Security
+export SECRET_KEY="your-super-secret-key-here"
+export JWT_SECRET_KEY="your-jwt-secret-key-here"
+
+# Redis
+export REDIS_URL="redis://localhost:6379/0"
+
+# External APIs
+export ALPHA_VANTAGE_API_KEY="your-api-key"
+
+# Feature Flags
 export FEATURE_PROMETHEUS_METRICS=true
+export ENABLE_ML_MODELS=true
+export ENABLE_COLLABORATION=true
+
+# Observability
 export LOG_JSON=true
 export LOG_LEVEL=INFO
+export METRICS_ROUTE="/metrics"
+export PROMETHEUS_MULTIPROC_DIR="/tmp/prometheus_multiproc"
 ```
 
-## TLS Termination and Reverse Proxy
+### Production Configuration File
 
-Terminate TLS at a reverse proxy (e.g., Nginx) and forward to the backend on 5002. Serve the frontend statically via Nginx or a CDN.
+Create `/etc/valor-ivx/config.env`:
+```bash
+# Database
+DB_URL=postgresql://valor_user:secure_password@localhost/valor_ivx
 
-### Nginx Example (TLS termination + security headers)
+# Security (generate secure keys)
+SECRET_KEY=$(openssl rand -hex 32)
+JWT_SECRET_KEY=$(openssl rand -hex 32)
 
-```
-server {
-    listen 443 ssl http2;
-    server_name your-domain.tld;
+# Redis
+REDIS_URL=redis://localhost:6379/0
 
-    ssl_certificate /etc/letsencrypt/live/your-domain.tld/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.tld/privkey.pem;
+# External APIs
+ALPHA_VANTAGE_API_KEY=your-api-key
 
-    # Security headers
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+# Features
+FEATURE_PROMETHEUS_METRICS=true
+ENABLE_ML_MODELS=true
+ENABLE_COLLABORATION=true
 
-    # Content Security Policy (tighten per your asset and API usage)
-    add_header Content-Security-Policy "
-        default-src 'self';
-        connect-src 'self' https://api.your-domain.tld;
-        img-src 'self' data:;
-        script-src 'self';
-        style-src 'self' 'unsafe-inline';
-        frame-ancestors 'none';
-    " always;
-
-    # Frontend static files
-    root /var/www/valor-frontend;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Backend API proxy
-    location /api/ {
-        proxy_pass http://127.0.0.1:5002/api/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 120;
-    }
-
-    # Metrics (optionally expose internally only)
-    location /metrics {
-        allow 127.0.0.1;
-        deny all; # expose only to Prometheus collector or internal network
-        proxy_pass http://127.0.0.1:5002/metrics;
-    }
-}
-
-# Redirect HTTP to HTTPS
-server {
-    listen 80;
-    server_name your-domain.tld;
-    return 301 https://$host$request_uri;
-}
+# Logging
+LOG_JSON=true
+LOG_LEVEL=INFO
+METRICS_ROUTE=/metrics
+PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus_multiproc
 ```
 
-Notes:
-- Limit /metrics exposure to internal networks or specific IPs.
-- Tighten CSP per your actual asset/CDN usage.
-- Use a separate origin for API if preferred, and update CORS accordingly.
+## 🚀 Deployment
 
-## Security Posture
+### Using Docker Compose
 
-- HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy enforced at proxy.
-- Bcrypt for password hashing.
-- Minimal JWT guard across sensitive endpoints (enhancements planned in P6: robust JWT with refresh and revocation).
-- Tenant enforcement: required on runs, scenarios, financial-data, LBO, M&A, notes.
-- Public/system endpoints: “/”, “/api/health”, websocket status, and “/metrics” when enabled.
-- Health endpoint is unthrottled. Rate limiting remains across sensitive endpoints; financial data endpoints maintain a dedicated limiter.
-
-## Observability
-
-### Logging
-- Structured JSON logs via structlog (backend/logging.py).
-- Correlate by request_id and tenant_id.
-- Configure level via LOG_LEVEL (INFO recommended for prod, DEBUG disabled).
-
-### Metrics
-- Enable with FEATURE_PROMETHEUS_METRICS=true.
-- Prometheus metrics exposed at /metrics:
-  - http_requests_total{method,endpoint,status,tenant}
-  - http_request_duration_seconds
-- Use PROMETHEUS_MULTIPROC_DIR for Gunicorn multiprocess scraping.
-
-### SLOs and Alerting (roadmap P2)
-- Define availability and latency (P95/P99) SLOs for key endpoints.
-- Create alert rules on error rate and latency breaches.
-- Reference docs/observability for example dashboards and runbooks.
-
-## Deployment
-
-### Option A: Gunicorn behind Nginx
-1. Build and install dependencies.
-2. Export environment variables (via systemd unit or process manager).
-3. Start Gunicorn:
-   ```bash
-   gunicorn --bind 127.0.0.1:5002 --workers 4 --timeout 120 app:app
+1. **Create docker-compose.prod.yml**:
+   ```yaml
+   version: '3.8'
+   
+   services:
+     postgres:
+       image: postgres:13
+       environment:
+         POSTGRES_DB: valor_ivx
+         POSTGRES_USER: valor_user
+         POSTGRES_PASSWORD: secure_password
+       volumes:
+         - postgres_data:/var/lib/postgresql/data
+       ports:
+         - "5432:5432"
+   
+     redis:
+       image: redis:7-alpine
+       ports:
+         - "6379:6379"
+   
+     backend:
+       build: ./backend
+       environment:
+         - DB_URL=postgresql://valor_user:secure_password@postgres/valor_ivx
+         - REDIS_URL=redis://redis:6379/0
+         - FEATURE_PROMETHEUS_METRICS=true
+       ports:
+         - "5002:5002"
+       depends_on:
+         - postgres
+         - redis
+       volumes:
+         - /tmp/prometheus_multiproc:/tmp/prometheus_multiproc
+   
+     prometheus:
+       image: prom/prometheus
+       ports:
+         - "9090:9090"
+       volumes:
+         - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+   
+   volumes:
+     postgres_data:
    ```
-4. Ensure Nginx proxy configured as above.
-5. Validate:
-   - Health: curl -s https://your-domain.tld/api/health
-   - Metrics (internal): curl -s http://127.0.0.1:5002/metrics
 
-### Option B: Docker / Docker Compose
-- Backend Dockerfile provided (backend/Dockerfile).
-- Example run:
-  ```bash
-  docker build -t valor-ivx-backend:prod backend
-  docker run -d \
-    -p 5002:5002 \
-    -e FLASK_ENV=production \
-    -e DATABASE_URL=postgresql://user:pass@db/valor_ivx \
-    -e SECRET_KEY=... \
-    -e JWT_SECRET_KEY=... \
-    -e FEATURE_PROMETHEUS_METRICS=true \
-    valor-ivx-backend:prod
-  ```
-- Place Nginx in front of the container for TLS and headers.
+2. **Deploy**:
+   ```bash
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
 
-### Zero-Downtime and Readiness (expand in P2)
-- Use process managers (systemd, supervisor) or orchestration (Kubernetes) with readiness probes.
-- Readiness should validate:
-  - DB connectivity
-  - Cache status (if used)
-  - Third-party API reachability (as appropriate)
-- Rolling restarts to avoid downtime.
+### Manual Deployment
 
-## Verification Checklist
+1. **Install Dependencies**:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   pip install gunicorn psycopg2-binary
+   ```
 
-- [ ] HTTPS enabled with valid TLS certificate
-- [ ] HSTS, CSP, and other security headers applied
-- [ ] Backend bound to localhost:5002 behind proxy (or internal network only)
-- [ ] Secrets loaded from environment/secret store
-- [ ] /metrics enabled and scraped internally only (if enabled)
-- [ ] Logs in JSON with request_id and tenant_id
-- [ ] CORS configured for frontend domain
-- [ ] Health endpoint accessible; protected routes enforce tenancy
+2. **Run Migrations**:
+   ```bash
+   alembic upgrade head
+   ```
 
-## Sample cURL
+3. **Start with Gunicorn**:
+   ```bash
+   gunicorn -w 4 -b 0.0.0.0:5002 --timeout 120 app:app
+   ```
 
-Health (no tenant required):
-```bash
-curl -s https://your-domain.tld/api/health
+## 📊 Monitoring and Metrics
+
+### Prometheus Configuration
+
+Create `monitoring/prometheus.yml`:
+```yaml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'valor-ivx-backend'
+    static_configs:
+      - targets: ['localhost:5002']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
 ```
 
-Protected route (tenant required):
+### Available Metrics
+
+- **HTTP Requests**: `http_requests_total`
+- **Request Duration**: `http_request_duration_seconds`
+- **Rate Limiting**: `rate_limit_allowed_total`, `rate_limit_blocked_total`
+- **Quota Usage**: `quota_increment_success_total`, `quota_increment_failure_total`
+- **Model Performance**: `model_inference_duration_seconds`, `model_predictions_total`
+
+### Health Checks
+
 ```bash
-curl -s -H "X-Tenant-ID: demo" https://your-domain.tld/api/runs
+# Application health
+curl http://localhost:5002/api/health
+
+# Metrics endpoint
+curl http://localhost:5002/metrics
+
+# Database connectivity
+curl http://localhost:5002/api/health/db
 ```
 
-Metrics (internal only):
+## 🔒 Security Considerations
+
+### Database Security
+- Use strong passwords for database users
+- Enable SSL connections
+- Restrict database access to application servers only
+- Regular security updates
+
+### Application Security
+- Use environment variables for secrets
+- Enable HTTPS in production
+- Implement proper CORS policies
+- Regular dependency updates
+
+### Rate Limiting
+- Configure appropriate rate limits per tenant
+- Monitor rate limit violations
+- Implement progressive rate limiting for abuse prevention
+
+## 🧪 Testing Production Setup
+
+### Database Connection Test
 ```bash
-curl -s http://127.0.0.1:5002/metrics
+cd backend
+python -c "
+from db_enterprise import get_enterprise_session
+session = get_enterprise_session()
+print('Database connection successful')
+session.close()
+"
 ```
 
-## Roadmap References
-- P2: SLOs, readiness probes, alerting
-- P6: Robust JWT session model with refresh rotation and revocation
-- docs/observability: dashboards and runbooks
+### Migration Test
+```bash
+cd backend
+alembic current
+alembic history
+```
+
+### Metrics Test
+```bash
+curl http://localhost:5002/metrics | grep valor_ivx
+```
+
+## 📝 Troubleshooting
+
+### Common Issues
+
+1. **Database Connection Failed**:
+   - Check PostgreSQL service status
+   - Verify connection string
+   - Check firewall settings
+
+2. **Migration Errors**:
+   - Ensure database user has proper permissions
+   - Check for conflicting schema changes
+   - Review migration history
+
+3. **Metrics Not Available**:
+   - Verify `FEATURE_PROMETHEUS_METRICS=true`
+   - Check `/tmp/prometheus_multiproc` directory permissions
+   - Restart application after configuration changes
+
+### Logs
+```bash
+# Application logs
+tail -f backend/backend.log
+
+# PostgreSQL logs
+sudo tail -f /var/log/postgresql/postgresql-*.log
+
+# Docker logs
+docker-compose logs -f backend
+```

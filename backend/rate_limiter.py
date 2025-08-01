@@ -8,8 +8,9 @@ import threading
 from collections import defaultdict, deque
 from typing import Dict, Deque, Optional
 from functools import wraps
-from flask import request, jsonify, current_app
+from flask import request, jsonify, current_app, g
 import logging
+from .metrics import rate_limit_allowed, rate_limit_blocked
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,14 @@ class RateLimiter:
             # Check if we're under the limit
             if len(requests) < limit_config['requests']:
                 requests.append(current_time)
+                # Record metrics
+                tenant_id = getattr(g, 'tenant_id', 'unknown')
+                rate_limit_allowed(tenant_id, limit_type)
                 return True
             
+            # Record metrics
+            tenant_id = getattr(g, 'tenant_id', 'unknown')
+            rate_limit_blocked(tenant_id, limit_type)
             return False
     
     def get_remaining_requests(self, key: str, limit_type: str = 'api') -> Dict[str, int]:
