@@ -49,6 +49,27 @@ class TestingConfig(Config):
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
     WTF_CSRF_ENABLED = False
 
+def get_enterprise_database_url():
+    """
+    Get enterprise database URL with fallback logic:
+    1. DB_URL environment variable (for production)
+    2. VALOR_DB_PATH environment variable (alternative)
+    3. SQLite fallback for development
+    """
+    # Production database URL
+    db_url = os.environ.get('DB_URL')
+    if db_url:
+        return db_url
+    
+    # Alternative database path
+    valor_db_path = os.environ.get('VALOR_DB_PATH')
+    if valor_db_path:
+        return f"sqlite:///{valor_db_path}"
+    
+    # Development fallback
+    return "sqlite:///valor_ivx_enterprise.db"
+
+
 # Configuration mapping
 config = {
     'development': DevelopmentConfig,
