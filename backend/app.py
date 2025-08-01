@@ -166,6 +166,58 @@ class LBOScenario(db.Model):
             'updated_at': self.updated_at.isoformat()
         }
 
+class MARun(db.Model):
+    """M&A analysis run data"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    run_id = db.Column(db.String(36), unique=True, nullable=False)  # UUID
+    deal_name = db.Column(db.String(100), nullable=False)
+    acquirer_name = db.Column(db.String(100), nullable=False)
+    target_name = db.Column(db.String(100), nullable=False)
+    inputs = db.Column(db.Text, nullable=False)  # JSON
+    results = db.Column(db.Text)  # JSON
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'run_id': self.run_id,
+            'deal_name': self.deal_name,
+            'acquirer_name': self.acquirer_name,
+            'target_name': self.target_name,
+            'inputs': json.loads(self.inputs),
+            'results': json.loads(self.results) if self.results else None,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat()
+        }
+
+class MAScenario(db.Model):
+    """Saved M&A scenario data"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    scenario_id = db.Column(db.String(36), unique=True, nullable=False)  # UUID
+    name = db.Column(db.String(100), nullable=False)
+    deal_name = db.Column(db.String(100), nullable=False)
+    acquirer_name = db.Column(db.String(100), nullable=False)
+    target_name = db.Column(db.String(100), nullable=False)
+    inputs = db.Column(db.Text, nullable=False)  # JSON
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'scenario_id': self.scenario_id,
+            'name': self.name,
+            'deal_name': self.deal_name,
+            'acquirer_name': self.acquirer_name,
+            'target_name': self.target_name,
+            'inputs': json.loads(self.inputs),
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat()
+        }
+
 # Helper functions
 def get_or_create_user() -> User:
     """Get or create a default user for demo purposes"""
@@ -692,6 +744,218 @@ def save_notes(ticker):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+# M&A Analysis Endpoints
+@app.route('/api/ma/runs', methods=['POST'])
+def save_ma_run():
+    """Save M&A analysis run"""
+    try:
+        user = get_or_create_user()
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Validate required fields
+        required_fields = ['deal_name', 'acquirer_name', 'target_name', 'inputs']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Generate run ID
+        run_id = str(uuid.uuid4())
+        
+        # Create new run
+        ma_run = MARun(
+            user_id=user.id,
+            run_id=run_id,
+            deal_name=data['deal_name'],
+            acquirer_name=data['acquirer_name'],
+            target_name=data['target_name'],
+            inputs=json.dumps(data['inputs']),
+            results=json.dumps(data.get('results'))
+        )
+        
+        db.session.add(ma_run)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'M&A run saved successfully',
+            'data': {
+                'run_id': run_id,
+                'deal_name': data['deal_name']
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error saving M&A run: {str(e)}")
+        return jsonify({'error': 'Failed to save M&A run'}), 500
+
+@app.route('/api/ma/runs/last', methods=['GET'])
+def get_last_ma_run():
+    """Get the most recent M&A run"""
+    try:
+        user = get_or_create_user()
+        
+        # Get the most recent run for the user
+        ma_run = MARun.query.filter_by(user_id=user.id).order_by(MARun.created_at.desc()).first()
+        
+        if not ma_run:
+            return jsonify({'error': 'No M&A runs found'}), 404
+        
+        return jsonify({
+            'success': True,
+            'data': ma_run.to_dict()
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error retrieving last M&A run: {str(e)}")
+        return jsonify({'error': 'Failed to retrieve M&A run'}), 500
+
+@app.route('/api/ma/runs/<run_id>', methods=['GET'])
+def get_ma_run(run_id):
+    """Get specific M&A run by ID"""
+    try:
+        user = get_or_create_user()
+        
+        ma_run = MARun.query.filter_by(user_id=user.id, run_id=run_id).first()
+        
+        if not ma_run:
+            return jsonify({'error': 'M&A run not found'}), 404
+        
+        return jsonify({
+            'success': True,
+            'data': ma_run.to_dict()
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error retrieving M&A run: {str(e)}")
+        return jsonify({'error': 'Failed to retrieve M&A run'}), 500
+
+@app.route('/api/ma/runs', methods=['GET'])
+def list_ma_runs():
+    """List all M&A runs for the user"""
+    try:
+        user = get_or_create_user()
+        
+        ma_runs = MARun.query.filter_by(user_id=user.id).order_by(MARun.created_at.desc()).all()
+        
+        return jsonify({
+            'success': True,
+            'data': [run.to_dict() for run in ma_runs]
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error listing M&A runs: {str(e)}")
+        return jsonify({'error': 'Failed to list M&A runs'}), 500
+
+@app.route('/api/ma/scenarios', methods=['POST'])
+def save_ma_scenarios():
+    """Save M&A scenarios"""
+    try:
+        user = get_or_create_user()
+        data = request.get_json()
+        
+        if not data or 'scenarios' not in data:
+            return jsonify({'error': 'Scenarios data is required'}), 400
+        
+        scenarios_data = data['scenarios']
+        if not isinstance(scenarios_data, list):
+            return jsonify({'error': 'Scenarios must be a list'}), 400
+        
+        saved_scenarios = []
+        
+        for scenario_data in scenarios_data:
+            # Validate required fields
+            required_fields = ['name', 'deal_name', 'acquirer_name', 'target_name', 'inputs']
+            for field in required_fields:
+                if field not in scenario_data:
+                    return jsonify({'error': f'Missing required field in scenario: {field}'}), 400
+            
+            # Generate scenario ID
+            scenario_id = str(uuid.uuid4())
+            
+            # Check for duplicate name
+            existing = MAScenario.query.filter_by(user_id=user.id, name=scenario_data['name']).first()
+            if existing:
+                # Update existing scenario
+                existing.deal_name = scenario_data['deal_name']
+                existing.acquirer_name = scenario_data['acquirer_name']
+                existing.target_name = scenario_data['target_name']
+                existing.inputs = json.dumps(scenario_data['inputs'])
+                existing.updated_at = datetime.utcnow()
+                db.session.commit()  # Commit the update
+                saved_scenarios.append(existing.to_dict())
+            else:
+                # Create new scenario
+                scenario = MAScenario(
+                    user_id=user.id,
+                    scenario_id=scenario_id,
+                    name=scenario_data['name'],
+                    deal_name=scenario_data['deal_name'],
+                    acquirer_name=scenario_data['acquirer_name'],
+                    target_name=scenario_data['target_name'],
+                    inputs=json.dumps(scenario_data['inputs'])
+                )
+                db.session.add(scenario)
+                db.session.flush()  # Flush to get the ID
+                saved_scenarios.append(scenario.to_dict())
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'{len(saved_scenarios)} M&A scenarios saved successfully',
+            'data': saved_scenarios
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error saving M&A scenarios: {str(e)}")
+        return jsonify({'error': 'Failed to save M&A scenarios'}), 500
+
+@app.route('/api/ma/scenarios', methods=['GET'])
+def get_ma_scenarios():
+    """Get all M&A scenarios for the user"""
+    try:
+        user = get_or_create_user()
+        
+        scenarios = MAScenario.query.filter_by(user_id=user.id).order_by(MAScenario.created_at.desc()).all()
+        
+        return jsonify({
+            'success': True,
+            'data': [scenario.to_dict() for scenario in scenarios]
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error retrieving M&A scenarios: {str(e)}")
+        return jsonify({'error': 'Failed to retrieve M&A scenarios'}), 500
+
+@app.route('/api/ma/scenarios/<scenario_id>', methods=['DELETE'])
+def delete_ma_scenario(scenario_id):
+    """Delete M&A scenario by ID"""
+    try:
+        user = get_or_create_user()
+        
+        scenario = MAScenario.query.filter_by(user_id=user.id, scenario_id=scenario_id).first()
+        
+        if not scenario:
+            return jsonify({'error': 'M&A scenario not found'}), 404
+        
+        db.session.delete(scenario)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'M&A scenario deleted successfully'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error deleting M&A scenario: {str(e)}")
+        return jsonify({'error': 'Failed to delete M&A scenario'}), 500
 
 # Error handlers
 @app.errorhandler(404)
