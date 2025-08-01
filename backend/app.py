@@ -9,6 +9,7 @@ handling data persistence, user management, and financial analysis storage.
 import os
 import json
 import uuid
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
@@ -25,6 +26,16 @@ from financial_data import financial_api, parse_financial_data, calculate_dcf_in
 
 # Import WebSocket manager
 from websocket_manager import websocket_manager
+
+# Import monitoring system
+try:
+    from monitoring import MonitoringManager, init_monitoring_routes
+    import redis
+    redis_client = redis.Redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379'))
+    monitoring_enabled = True
+except ImportError:
+    monitoring_enabled = False
+    redis_client = None
 
 # Configuration
 class Config:
@@ -46,6 +57,11 @@ jwt = JWTManager(app)
 
 # Initialize WebSocket manager with app
 websocket_manager.init_app(app)
+
+# Initialize monitoring system
+if monitoring_enabled:
+    monitoring_manager = MonitoringManager(app, redis_client)
+    init_monitoring_routes(app, monitoring_manager)
 
 # Database Models
 class User(db.Model):
@@ -445,6 +461,9 @@ def delete_scenario(scenario_id):
 @app.route('/api/financial-data/<ticker>', methods=['GET'])
 def get_financial_data(ticker):
     """Get comprehensive financial data for a ticker"""
+    start_time = time.time()
+    success = False
+    
     try:
         # Fetch data from Alpha Vantage
         overview_data = financial_api.get_company_overview(ticker)
@@ -461,6 +480,7 @@ def get_financial_data(ticker):
         # Parse and structure the data
         parsed_data = parse_financial_data(overview_data, income_data, balance_data, cash_flow_data)
         
+        success = True
         return jsonify({
             'success': True,
             'data': parsed_data
@@ -468,10 +488,23 @@ def get_financial_data(ticker):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        # Record metrics if monitoring is enabled
+        if monitoring_enabled:
+            duration = time.time() - start_time
+            monitoring_manager.record_financial_calculation(
+                calculation_type="financial_data_fetch",
+                duration=duration,
+                success=success,
+                tenant=request.headers.get('X-Tenant-ID', 'default')
+            )
 
 @app.route('/api/financial-data/<ticker>/dcf-inputs', methods=['GET'])
 def get_dcf_inputs(ticker):
     """Get DCF model inputs calculated from financial data"""
+    start_time = time.time()
+    success = False
+    
     try:
         # Fetch data from Alpha Vantage
         overview_data = financial_api.get_company_overview(ticker)
@@ -491,6 +524,7 @@ def get_dcf_inputs(ticker):
         # Calculate DCF inputs
         dcf_inputs = calculate_dcf_inputs(parsed_data)
         
+        success = True
         return jsonify({
             'success': True,
             'data': dcf_inputs
@@ -498,6 +532,16 @@ def get_dcf_inputs(ticker):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        # Record metrics if monitoring is enabled
+        if monitoring_enabled:
+            duration = time.time() - start_time
+            monitoring_manager.record_financial_calculation(
+                calculation_type="dcf_inputs_calculation",
+                duration=duration,
+                success=success,
+                tenant=request.headers.get('X-Tenant-ID', 'default')
+            )
 
 @app.route('/api/financial-data/<ticker>/historical-prices', methods=['GET'])
 def get_historical_prices(ticker):
