@@ -43,7 +43,7 @@
   "devDependencies": {
     "vitest": "^1.6.0",
     "@vitest/coverage-v8": "^1.6.0",
-    "jsdom": "^24.0.0",
+    "jsdom": "^26.1.0",
     "@playwright/test": "^1.45.0"
   },
   "dependencies": {},
