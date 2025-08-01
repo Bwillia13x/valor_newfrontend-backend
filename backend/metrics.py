@@ -14,7 +14,10 @@ from prometheus_client import (
     generate_latest,
     multiprocess,
 )
-from .settings import settings
+try:
+    from .settings import settings
+except ImportError:
+    from settings import settings
 
 # Registry (support multiprocess if PROMETHEUS_MULTIPROC_DIR is set)
 _registry: Optional[CollectorRegistry] = None
