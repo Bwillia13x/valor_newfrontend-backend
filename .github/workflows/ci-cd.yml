@@ -71,7 +71,7 @@ jobs:
           pytest tests/unit/ --cov=. --cov-report=xml --cov-report=html --cov-report=term
           
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           file: ./backend/coverage.xml
           flags: unittests
@@ -277,7 +277,7 @@ jobs:
           python test_integration_workflow.py
           
       - name: Upload test coverage
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           file: ./backend/coverage.xml
           flags: full-suite
