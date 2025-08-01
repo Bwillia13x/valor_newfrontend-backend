@@ -35,7 +35,7 @@ jobs:
           safety check --json --output safety-report.json || true
           
       - name: Upload security reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-reports
           path: |
@@ -78,7 +78,7 @@ jobs:
           name: codecov-umbrella
           
       - name: Upload test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: unit-test-results-${{ matrix.python-version }}
           path: backend/htmlcov/
@@ -127,7 +127,7 @@ jobs:
           pytest tests/integration/ --cov=. --cov-report=xml --cov-report=html
           
       - name: Upload integration test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
           path: backend/htmlcov/
@@ -168,7 +168,7 @@ jobs:
           pytest --headed
           
       - name: Upload E2E test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: e2e-test-results
           path: tests/e2e/test-results/
@@ -206,7 +206,7 @@ jobs:
           locust -f locustfile.py --headless --users 10 --spawn-rate 2 --run-time 60s
           
       - name: Upload performance test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: performance-test-results
           path: tests/performance/
