@@ -219,13 +219,24 @@ window.ValorIVX = {
         const statusIndicator = document.createElement('div');
         statusIndicator.id = 'collaboration-status';
         statusIndicator.className = 'collaboration-status';
-        statusIndicator.innerHTML = `
-            <div class="status-indicator">
-                <span class="status-dot"></span>
-                <span class="status-text">Offline</span>
-            </div>
-            <div class="presence-list"></div>
-        `;
+        // Create status indicator safely
+        const statusDiv = document.createElement('div');
+        statusDiv.className = 'status-indicator';
+        
+        const statusDot = document.createElement('span');
+        statusDot.className = 'status-dot';
+        
+        const statusText = document.createElement('span');
+        statusText.className = 'status-text';
+        statusText.textContent = 'Offline';
+        
+        const presenceList = document.createElement('div');
+        presenceList.className = 'presence-list';
+        
+        statusDiv.appendChild(statusDot);
+        statusDiv.appendChild(statusText);
+        statusIndicator.appendChild(statusDiv);
+        statusIndicator.appendChild(presenceList);
         
         document.body.appendChild(statusIndicator);
         
@@ -233,11 +244,27 @@ window.ValorIVX = {
         const controls = document.createElement('div');
         controls.id = 'collaboration-controls';
         controls.className = 'collaboration-controls';
-        controls.innerHTML = `
-            <button id="join-room-btn" class="btn primary">Join Room</button>
-            <button id="share-room-btn" class="btn" style="display:none">Share Room</button>
-            <button id="leave-room-btn" class="btn" style="display:none">Leave Room</button>
-        `;
+        // Create controls safely
+        const joinBtn = document.createElement('button');
+        joinBtn.id = 'join-room-btn';
+        joinBtn.className = 'btn primary';
+        joinBtn.textContent = 'Join Room';
+        
+        const shareBtn = document.createElement('button');
+        shareBtn.id = 'share-room-btn';
+        shareBtn.className = 'btn';
+        shareBtn.style.display = 'none';
+        shareBtn.textContent = 'Share Room';
+        
+        const leaveBtn = document.createElement('button');
+        leaveBtn.id = 'leave-room-btn';
+        leaveBtn.className = 'btn';
+        leaveBtn.style.display = 'none';
+        leaveBtn.textContent = 'Leave Room';
+        
+        controls.appendChild(joinBtn);
+        controls.appendChild(shareBtn);
+        controls.appendChild(leaveBtn);
         
         document.body.appendChild(controls);
         
@@ -279,15 +306,26 @@ window.ValorIVX = {
         // Add chart type selector
         const chartSelector = document.createElement('div');
         chartSelector.className = 'chart-selector';
-        chartSelector.innerHTML = `
-            <select id="chart-type-select">
-                <option value="standard">Standard Charts</option>
-                <option value="waterfall">Waterfall Chart</option>
-                <option value="tornado">Tornado Diagram</option>
-                <option value="spider">Spider Chart</option>
-                <option value="3d">3D Charts</option>
-            </select>
-        `;
+        // Create chart selector safely
+        const select = document.createElement('select');
+        select.id = 'chart-type-select';
+        
+        const options = [
+            { value: 'standard', text: 'Standard Charts' },
+            { value: 'waterfall', text: 'Waterfall Chart' },
+            { value: 'tornado', text: 'Tornado Diagram' },
+            { value: 'spider', text: 'Spider Chart' },
+            { value: '3d', text: '3D Charts' }
+        ];
+        
+        options.forEach(option => {
+            const optionElement = document.createElement('option');
+            optionElement.value = option.value;
+            optionElement.textContent = option.text;
+            select.appendChild(optionElement);
+        });
+        
+        chartSelector.appendChild(select);
         
         // Add to chart container
         const chartContainer = document.querySelector('.charts');
@@ -312,12 +350,21 @@ window.ValorIVX = {
         const pwaStatus = document.createElement('div');
         pwaStatus.id = 'pwa-status';
         pwaStatus.className = 'pwa-status';
-        pwaStatus.innerHTML = `
-            <div class="pwa-indicator">
-                <span class="pwa-icon">📱</span>
-                <span class="pwa-text">PWA Ready</span>
-            </div>
-        `;
+        // Create PWA status safely
+        const pwaIndicator = document.createElement('div');
+        pwaIndicator.className = 'pwa-indicator';
+        
+        const pwaIcon = document.createElement('span');
+        pwaIcon.className = 'pwa-icon';
+        pwaIcon.textContent = '📱';
+        
+        const pwaText = document.createElement('span');
+        pwaText.className = 'pwa-text';
+        pwaText.textContent = 'PWA Ready';
+        
+        pwaIndicator.appendChild(pwaIcon);
+        pwaIndicator.appendChild(pwaText);
+        pwaStatus.appendChild(pwaIndicator);
         
         document.body.appendChild(pwaStatus);
         
@@ -810,9 +857,17 @@ window.ValorIVX = {
         const presenceList = document.querySelector('.presence-list');
         if (presenceList) {
             const users = this.collaborationEngine.getPresenceUsers();
-            presenceList.innerHTML = users.map(user => 
-                `<div class="presence-user">${user.name}</div>`
-            ).join('');
+            
+            // Clear existing content
+            presenceList.textContent = '';
+            
+            // Create user elements safely
+            users.forEach(user => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'presence-user';
+                userDiv.textContent = user.name; // Use textContent to prevent XSS
+                presenceList.appendChild(userDiv);
+            });
         }
     },
     
@@ -964,15 +1019,37 @@ function setupServiceWorkerUpdates() {
     // Minimal inline prompt to avoid importing additional modules here
     const prompt = document.createElement('div');
     prompt.className = 'pwa-update-notification';
-    prompt.innerHTML = `
-      <div class="pwa-update-content">
-        <span>Update available</span>
-        <div style="display:flex; gap:8px; margin-left:auto">
-          <button id="sw-refresh-now" class="btn primary" style="padding:6px 10px;font-size:12px">Update now</button>
-          <button id="sw-dismiss" class="btn" style="padding:6px 10px;font-size:12px">Later</button>
-        </div>
-      </div>
-    `;
+    // Create update prompt safely
+    const content = document.createElement('div');
+    content.className = 'pwa-update-content';
+    
+    const span = document.createElement('span');
+    span.textContent = 'Update available';
+    
+    const buttonDiv = document.createElement('div');
+    buttonDiv.style.display = 'flex';
+    buttonDiv.style.gap = '8px';
+    buttonDiv.style.marginLeft = 'auto';
+    
+    const updateBtn = document.createElement('button');
+    updateBtn.id = 'sw-refresh-now';
+    updateBtn.className = 'btn primary';
+    updateBtn.style.padding = '6px 10px';
+    updateBtn.style.fontSize = '12px';
+    updateBtn.textContent = 'Update now';
+    
+    const dismissBtn = document.createElement('button');
+    dismissBtn.id = 'sw-dismiss';
+    dismissBtn.className = 'btn';
+    dismissBtn.style.padding = '6px 10px';
+    dismissBtn.style.fontSize = '12px';
+    dismissBtn.textContent = 'Later';
+    
+    buttonDiv.appendChild(updateBtn);
+    buttonDiv.appendChild(dismissBtn);
+    content.appendChild(span);
+    content.appendChild(buttonDiv);
+    prompt.appendChild(content);
     document.body.appendChild(prompt);
 
     const cleanup = () => prompt.remove();

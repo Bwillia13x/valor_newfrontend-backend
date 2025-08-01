@@ -8,8 +8,9 @@ ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install build dependencies
+# Install build dependencies with security updates
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         gcc \
         g++ \
@@ -20,7 +21,8 @@ RUN apt-get update \
         libffi-dev \
         libssl-dev \
         curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Create virtual environment
 RUN python -m venv /opt/venv
@@ -41,8 +43,9 @@ ENV PYTHONUNBUFFERED=1
 ENV FLASK_ENV=production
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install runtime dependencies
+# Install runtime dependencies with security updates
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         libpq5 \
         libcairo2 \
@@ -54,7 +57,8 @@ RUN apt-get update \
         curl \
         dumb-init \
     && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && apt-get clean \
+    && apt-get autoremove -y
 
 # Create non-root user with specific UID/GID for security
 RUN groupadd -r app -g 1001 \
@@ -71,7 +75,9 @@ COPY --chown=app:app . .
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/logs /app/temp /app/uploads \
-    && chown -R app:app /app
+    && chown -R app:app /app \
+    && chmod -R 755 /app \
+    && chmod 700 /app/logs /app/temp /app/uploads
 
 # Switch to non-root user
 USER app

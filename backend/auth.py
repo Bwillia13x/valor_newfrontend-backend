@@ -184,15 +184,16 @@ class AuthManager:
             }
     
     def _validate_registration_data(self, username: str, email: str, password: str) -> Dict[str, Any]:
-        """Validate registration data"""
+        """Validate registration data with enhanced security checks"""
         # Username validation
-        if not username or len(username) < 3:
+        if not username or len(username) < 3 or len(username) > 50:
             return {
                 'valid': False,
-                'error': 'Username must be at least 3 characters long'
+                'error': 'Username must be between 3 and 50 characters'
             }
         
-        if not username.replace('_', '').replace('-', '').isalnum():
+        # Check for dangerous characters in username
+        if not re.match(r'^[a-zA-Z0-9_-]+$', username):
             return {
                 'valid': False,
                 'error': 'Username can only contain letters, numbers, underscores, and hyphens'
@@ -205,18 +206,31 @@ class AuthManager:
                 'error': 'Please provide a valid email address'
             }
         
-        # Password validation
+        # Password strength validation
         if not password or len(password) < 8:
             return {
                 'valid': False,
                 'error': 'Password must be at least 8 characters long'
             }
         
-        # Check for common password patterns
-        if password.lower() in ['password', '123456', 'qwerty', 'admin']:
+        # Check for common weak passwords
+        weak_passwords = ['password', '123456', 'qwerty', 'admin', 'letmein', 'welcome']
+        if password.lower() in weak_passwords:
             return {
                 'valid': False,
-                'error': 'Password is too common'
+                'error': 'Password is too common, please choose a stronger password'
+            }
+        
+        # Check for password complexity
+        has_upper = any(c.isupper() for c in password)
+        has_lower = any(c.islower() for c in password)
+        has_digit = any(c.isdigit() for c in password)
+        has_special = any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in password)
+        
+        if not (has_upper and has_lower and has_digit):
+            return {
+                'valid': False,
+                'error': 'Password must contain uppercase, lowercase, and numeric characters'
             }
         
         return {'valid': True}

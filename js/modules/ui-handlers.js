@@ -35,26 +35,26 @@ function ensureToastRegion() {
   return __toastRegion;
 }
 
-export function showToast(message, type = "info", timeoutMs = 3000) {
-  const region = ensureToastRegion();
-  const toast = document.createElement("div");
-  toast.className = `pwa-notification`;
-  toast.setAttribute("role", "status");
-  toast.setAttribute("aria-live", "polite");
-  toast.innerHTML = `
-    <div class="pwa-notification-content">
-      <strong>${type.toUpperCase()}</strong>
-      <span>${message}</span>
-      <div class="row" style="gap:6px;margin-top:6px;justify-content:flex-end">
-        <button class="btn" data-toast-dismiss>Dismiss</button>
-      </div>
-    </div>
-  `;
-  region.appendChild(toast);
-
-  const dismiss = () => toast.remove();
-  toast.querySelector('[data-toast-dismiss]')?.addEventListener("click", dismiss);
-  if (timeoutMs > 0) setTimeout(dismiss, timeoutMs);
+// Create toast notification
+function showToast(message, type = 'info', duration = 3000) {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message; // Use textContent instead of innerHTML for security
+    
+    // Add toast to container
+    const container = document.getElementById('toast-container') || document.body;
+    container.appendChild(toast);
+    
+    // Animate in
+    setTimeout(() => toast.classList.add('show'), 10);
+    
+    // Auto remove
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => container.removeChild(toast), 300);
+    }, duration);
+    
+    return toast;
 }
 
 // Logging utilities
