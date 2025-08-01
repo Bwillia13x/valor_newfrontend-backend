@@ -48,9 +48,7 @@ class WebSocketManager:
         self.socketio = SocketIO(
             app,
             cors_allowed_origins="*",
-            async_mode='asyncio',
-            logger=True,
-            engineio_logger=True
+            async_mode='threading'
         )
         
         # Register event handlers
