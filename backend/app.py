@@ -11,6 +11,7 @@ import json
 import uuid
 import logging
 import time
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
@@ -74,17 +75,55 @@ except ImportError:
 
 # Configuration
 class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY") or "dev-secret-key-change-in-production"
+    # Security: Require environment variables in production
+    SECRET_KEY = os.environ.get("SECRET_KEY")
+    if not SECRET_KEY:
+        if os.environ.get("FLASK_ENV") == "production":
+            raise ValueError("SECRET_KEY environment variable is required in production")
+        SECRET_KEY = "dev-secret-key-change-in-production"
+    
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL") or "sqlite:///valor_ivx.db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY") or "jwt-secret-key-change-in-production"
+    
+    JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+    if not JWT_SECRET_KEY:
+        if os.environ.get("FLASK_ENV") == "production":
+            raise ValueError("JWT_SECRET_KEY environment variable is required in production")
+        JWT_SECRET_KEY = "jwt-secret-key-change-in-production"
+    
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
+    
+    # Security headers
+    SECURITY_HEADERS = {
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+        'X-XSS-Protection': '1; mode=block',
+        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:;",
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Permissions-Policy': 'geolocation=(), microphone=(), camera=()'
+    }
+    
+    # CORS configuration
+    CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:8000").split(",")
+    CORS_SUPPORTS_CREDENTIALS = True
 
 
 # Initialize Flask app
 app = Flask(__name__, static_folder="../", static_url_path="")
 app.config.from_object(Config)
+
+# Configure CORS with proper settings
+CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=app.config['CORS_SUPPORTS_CREDENTIALS'])
+
+# Security headers middleware
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    for header, value in app.config['SECURITY_HEADERS'].items():
+        response.headers[header] = value
+    return response
 
 # Configure structured logging (via structlog backend/logging.py)
 configure_logging()
@@ -112,7 +151,6 @@ def set_request_id_header(response):
 
 
 # Initialize extensions
-CORS(app, origins=["http://localhost:8000", "http://127.0.0.1:8000"])
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
 
@@ -755,34 +793,33 @@ def delete_scenario(scenario_id):
 @financial_data_rate_limit
 @tenant_required
 def get_financial_data(ticker):
-    """Get comprehensive financial data for a ticker"""
-    start_time = time.time()
-    success = False
+    """Get financial data for a ticker with input validation"""
     try:
-        overview_data = financial_api.get_company_overview(ticker)
-        income_data = financial_api.get_income_statement(ticker)
-        balance_data = financial_api.get_balance_sheet(ticker)
-        cash_flow_data = financial_api.get_cash_flow(ticker)
-
-        if not overview_data:
-            return jsonify({"success": False, "error": "No financial data found for this ticker"}), 404
-
-        parsed_data = parse_financial_data(overview_data, income_data, balance_data, cash_flow_data)
-
-        success = True
-        return jsonify({"success": True, "data": parsed_data})
-
+        # Input validation and sanitization
+        if not ticker or len(ticker) > 10:
+            return jsonify({"error": "Invalid ticker symbol"}), 400
+        
+        # Sanitize ticker - only allow alphanumeric characters
+        ticker = re.sub(r'[^A-Za-z0-9]', '', ticker.upper())
+        if not ticker:
+            return jsonify({"error": "Invalid ticker symbol"}), 400
+        
+        # Rate limiting check
+        client_key = rate_limiter.get_client_key()
+        if not rate_limiter.is_allowed(client_key, 'financial_data'):
+            return jsonify({"error": "Rate limit exceeded"}), 429
+        
+        # Get financial data
+        data = financial_api.get_financial_data(ticker)
+        
+        if not data:
+            return jsonify({"error": "No data found for ticker"}), 404
+        
+        return jsonify({"success": True, "data": data})
+        
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if monitoring_enabled:
-            duration = time.time() - start_time
-            monitoring_manager.record_financial_calculation(
-                calculation_type="financial_data_fetch",
-                duration=duration,
-                success=success,
-                tenant=request.headers.get("X-Tenant-ID", "default"),
-            )
+        app.logger.error(f"Error fetching financial data for {ticker}: {str(e)}")
+        return jsonify({"error": "Failed to fetch financial data"}), 500
 
 
 @app.route("/api/financial-data/<ticker>/dcf-inputs", methods=["GET"])
@@ -1429,7 +1466,35 @@ def not_found(error):
 def internal_error(error):
     db.session.rollback()
     app.logger.error(f"Unhandled error: {error}")
-    return jsonify({"error": "Internal server error"}), 500
+    # Don't expose internal error details in production
+    if os.environ.get("FLASK_ENV") == "production":
+        return jsonify({"error": "Internal server error"}), 500
+    else:
+        return jsonify({"error": str(error)}), 500
+
+
+@app.errorhandler(400)
+def bad_request(error):
+    app.logger.warning(f"Bad request: {error}")
+    return jsonify({"error": "Bad request"}), 400
+
+
+@app.errorhandler(401)
+def unauthorized(error):
+    app.logger.warning(f"Unauthorized access attempt: {request.remote_addr}")
+    return jsonify({"error": "Unauthorized"}), 401
+
+
+@app.errorhandler(403)
+def forbidden(error):
+    app.logger.warning(f"Forbidden access attempt: {request.remote_addr}")
+    return jsonify({"error": "Forbidden"}), 403
+
+
+@app.errorhandler(429)
+def too_many_requests(error):
+    app.logger.warning(f"Rate limit exceeded: {request.remote_addr}")
+    return jsonify({"error": "Too many requests"}), 429
 
 
 # Database initialization
@@ -1467,5 +1532,16 @@ def init_ml_variant_routing():
 if __name__ == "__main__":
     init_db()
     init_ml_variant_routing()
+    
+    # Production safety checks
+    if os.environ.get("FLASK_ENV") == "production":
+        if app.config['SECRET_KEY'] == "dev-secret-key-change-in-production":
+            raise ValueError("SECRET_KEY must be set in production environment")
+        if app.config['JWT_SECRET_KEY'] == "jwt-secret-key-change-in-production":
+            raise ValueError("JWT_SECRET_KEY must be set in production environment")
+        if "sqlite" in app.config['SQLALCHEMY_DATABASE_URI']:
+            app.logger.warning("SQLite database detected in production - consider using PostgreSQL")
+    
     # Standardize to port 5002 as per STATUS_REPORT.md
-    app.run(debug=True, host="0.0.0.0", port=5002)
+    debug_mode = os.environ.get("FLASK_ENV") != "production"
+    app.run(debug=debug_mode, host="0.0.0.0", port=5002)

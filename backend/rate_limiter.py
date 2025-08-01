@@ -5,6 +5,7 @@ Implements API rate limiting to prevent abuse and ensure fair usage
 
 import time
 import threading
+import os
 from collections import defaultdict, deque
 from typing import Dict, Deque, Optional
 from functools import wraps
@@ -14,12 +15,30 @@ from .metrics import rate_limit_allowed, rate_limit_blocked
 
 logger = logging.getLogger(__name__)
 
+# Try to import Redis for production use
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+
 class RateLimiter:
-    """Rate limiter implementation using sliding window"""
+    """Rate limiter implementation using sliding window with Redis fallback"""
     
     def __init__(self):
         self.requests: Dict[str, Deque[float]] = defaultdict(deque)
         self.lock = threading.Lock()
+        
+        # Initialize Redis if available
+        self.redis_client = None
+        if REDIS_AVAILABLE and os.environ.get("REDIS_URL"):
+            try:
+                self.redis_client = redis.from_url(os.environ.get("REDIS_URL"))
+                self.redis_client.ping()  # Test connection
+                logger.info("Rate limiter using Redis")
+            except Exception as e:
+                logger.warning(f"Redis connection failed, falling back to memory: {e}")
+                self.redis_client = None
         
         # Default rate limits (requests per window)
         self.default_limits = {
@@ -31,6 +50,49 @@ class RateLimiter:
     
     def is_allowed(self, key: str, limit_type: str = 'api') -> bool:
         """Check if request is allowed based on rate limits"""
+        if self.redis_client:
+            return self._is_allowed_redis(key, limit_type)
+        else:
+            return self._is_allowed_memory(key, limit_type)
+    
+    def _is_allowed_redis(self, key: str, limit_type: str = 'api') -> bool:
+        """Redis-based rate limiting"""
+        try:
+            current_time = time.time()
+            limit_config = self.default_limits.get(limit_type, self.default_limits['api'])
+            
+            # Use Redis sorted set for sliding window
+            window_start = current_time - limit_config['window']
+            redis_key = f"rate_limit:{limit_type}:{key}"
+            
+            # Remove old entries
+            self.redis_client.zremrangebyscore(redis_key, 0, window_start)
+            
+            # Count current requests
+            current_requests = self.redis_client.zcard(redis_key)
+            
+            if current_requests < limit_config['requests']:
+                # Add current request
+                self.redis_client.zadd(redis_key, {str(current_time): current_time})
+                self.redis_client.expire(redis_key, limit_config['window'])
+                
+                # Record metrics
+                tenant_id = getattr(g, 'tenant_id', 'unknown')
+                rate_limit_allowed(tenant_id, limit_type)
+                return True
+            
+            # Record metrics
+            tenant_id = getattr(g, 'tenant_id', 'unknown')
+            rate_limit_blocked(tenant_id, limit_type)
+            return False
+            
+        except Exception as e:
+            logger.error(f"Redis rate limiting failed: {e}")
+            # Fallback to memory-based limiting
+            return self._is_allowed_memory(key, limit_type)
+    
+    def _is_allowed_memory(self, key: str, limit_type: str = 'api') -> bool:
+        """Memory-based rate limiting (fallback)"""
         with self.lock:
             current_time = time.time()
             limit_config = self.default_limits.get(limit_type, self.default_limits['api'])
@@ -58,6 +120,39 @@ class RateLimiter:
     
     def get_remaining_requests(self, key: str, limit_type: str = 'api') -> Dict[str, int]:
         """Get remaining requests and reset time for a key"""
+        if self.redis_client:
+            return self._get_remaining_requests_redis(key, limit_type)
+        else:
+            return self._get_remaining_requests_memory(key, limit_type)
+    
+    def _get_remaining_requests_redis(self, key: str, limit_type: str = 'api') -> Dict[str, int]:
+        """Redis-based remaining requests"""
+        try:
+            limit_config = self.default_limits.get(limit_type, self.default_limits['api'])
+            redis_key = f"rate_limit:{limit_type}:{key}"
+            
+            # Get current time
+            current_time = time.time()
+            
+            # Get requests within the current window
+            requests_in_window = self.redis_client.zrangebyscore(redis_key, current_time - limit_config['window'], current_time)
+            
+            remaining = max(0, limit_config['requests'] - len(requests_in_window))
+            
+            # Calculate reset time
+            reset_time = 0
+            if requests_in_window:
+                reset_time = int(requests_in_window[0]) + limit_config['window']
+            
+            return {
+                'remaining': remaining,
+                'limit': limit_config['requests'],
+                'reset_time': reset_time,
+                'window': limit_config['window']
+            }
+    
+    def _get_remaining_requests_memory(self, key: str, limit_type: str = 'api') -> Dict[str, int]:
+        """Memory-based remaining requests"""
         with self.lock:
             current_time = time.time()
             limit_config = self.default_limits.get(limit_type, self.default_limits['api'])
