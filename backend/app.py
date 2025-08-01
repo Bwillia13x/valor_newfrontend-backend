@@ -23,6 +23,9 @@ from flask_jwt_extended import (
 # Import financial data module
 from financial_data import financial_api, parse_financial_data, calculate_dcf_inputs
 
+# Import WebSocket manager
+from websocket_manager import websocket_manager
+
 # Configuration
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
@@ -40,6 +43,9 @@ app.config.from_object(Config)
 CORS(app, origins=['http://localhost:8000', 'http://127.0.0.1:8000', 'http://localhost:5001', 'http://127.0.0.1:5001'])
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
+
+# Initialize WebSocket manager with app
+websocket_manager.init_app(app)
 
 # Database Models
 class User(db.Model):
@@ -956,6 +962,44 @@ def delete_ma_scenario(scenario_id):
         db.session.rollback()
         app.logger.error(f"Error deleting M&A scenario: {str(e)}")
         return jsonify({'error': 'Failed to delete M&A scenario'}), 500
+
+# Add WebSocket status endpoint
+@app.route('/api/websocket/status')
+def websocket_status():
+    """Get WebSocket server status"""
+    try:
+        status = {
+            'connected': True,
+            'rooms': len(websocket_manager.rooms),
+            'users': len(websocket_manager.users),
+            'timestamp': datetime.now().isoformat()
+        }
+        return jsonify({'success': True, 'data': status})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# Add room status endpoint
+@app.route('/api/websocket/room/<room_id>/status')
+def room_status(room_id):
+    """Get room status"""
+    try:
+        status = websocket_manager.get_room_status(room_id)
+        return jsonify({'success': True, 'data': status})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# Add user status endpoint
+@app.route('/api/websocket/user/<user_id>/status')
+def user_status(user_id):
+    """Get user status"""
+    try:
+        status = websocket_manager.get_user_status(user_id)
+        if status:
+            return jsonify({'success': True, 'data': status})
+        else:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # Error handlers
 @app.errorhandler(404)
