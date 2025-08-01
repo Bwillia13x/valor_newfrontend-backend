@@ -16,7 +16,9 @@
     "build": "echo \"No build step required - pure HTML/CSS/JS\"",
     "lint": "echo \"Consider adding ESLint for JavaScript linting\"",
     "format": "echo \"Consider adding Prettier for code formatting\"",
-    "postinstall": "npx playwright install --with-deps || true"
+    "postinstall": "npx playwright install --with-deps || true",
+  "perf:smoke": "LOCUST_BASE_URL=http://localhost:8000 PERF_PROFILE=smoke locust -f tests/performance/locustfile.py --headless -u 5 -r 2 -t 30s --csv=tests/performance/artifacts/smoke",
+  "perf:baseline": "LOCUST_BASE_URL=http://localhost:8000 PERF_PROFILE=baseline locust -f tests/performance/locustfile.py --headless -u 50 -r 10 -t 2m --csv=tests/performance/artifacts/baseline"
   },
   "keywords": [
     "dcf",

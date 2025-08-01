@@ -6,7 +6,7 @@ Handles WebSocket connections for collaboration, video conferencing, and presenc
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Set, Optional
 from dataclasses import dataclass
 from flask_socketio import SocketIO, emit, join_room, leave_room, rooms
@@ -36,6 +36,9 @@ class WebSocketManager:
         self.users: Dict[str, User] = {}
         self.rooms: Dict[str, Set[str]] = {}
         self.collaboration_data: Dict[str, Dict] = {}
+        # Presence: room_id -> { user_id: { "tenant": str, "last_seen": datetime, "meta": dict } }
+        self.presence: Dict[str, Dict[str, Dict]] = {}
+        self.presence_ttl_seconds: int = 90  # auto-expire if not seen in this window
         
         if app is not None:
             self.init_app(app)
@@ -84,6 +87,12 @@ class WebSocketManager:
                     return
                 
                 self.handle_user_join_room(room_id, user_id, user_name, request.sid)
+                # Presence update
+                tenant = (data.get('tenant') or request.headers.get('X-Tenant-ID') or 'default')
+                meta = data.get('meta') or {}
+                self._presence_touch(room_id, user_id, tenant, meta)
+                emit('presence_state', self.get_presence_state(room_id), room=request.sid)
+                emit('presence_update', {'roomId': room_id, 'userId': user_id, 'state': 'join'}, room=room_id, include_self=False)
                 
             except Exception as e:
                 logger.error(f"Error joining room: {e}")
@@ -101,6 +110,9 @@ class WebSocketManager:
                     return
                 
                 self.handle_user_leave_room(room_id, user_id, request.sid)
+                # Presence update
+                self._presence_remove(room_id, user_id)
+                emit('presence_update', {'roomId': room_id, 'userId': user_id, 'state': 'leave'}, room=room_id, include_self=False)
                 
             except Exception as e:
                 logger.error(f"Error leaving room: {e}")
@@ -141,6 +153,9 @@ class WebSocketManager:
                     return
                 
                 self.handle_cursor_update(room_id, user_id, user_name, position)
+                # Touch presence heartbeat
+                tenant = (data.get('tenant') or request.headers.get('X-Tenant-ID') or 'default')
+                self._presence_touch(room_id, user_id, tenant, {})
                 
             except Exception as e:
                 logger.error(f"Error handling cursor update: {e}")
@@ -160,6 +175,9 @@ class WebSocketManager:
                     return
                 
                 self.handle_comment_update(room_id, user_id, user_name, comment)
+                # Touch presence heartbeat
+                tenant = (data.get('tenant') or request.headers.get('X-Tenant-ID') or 'default')
+                self._presence_touch(room_id, user_id, tenant, {})
                 
             except Exception as e:
                 logger.error(f"Error handling comment update: {e}")
@@ -180,6 +198,9 @@ class WebSocketManager:
                     return
                 
                 self.handle_video_signal(room_id, from_user_id, to_user_id, signal_type, signal_data)
+                # Touch presence heartbeat
+                tenant = (data.get('tenant') or request.headers.get('X-Tenant-ID') or 'default')
+                self._presence_touch(room_id, from_user_id, tenant, {})
                 
             except Exception as e:
                 logger.error(f"Error handling video signal: {e}")
@@ -427,17 +448,19 @@ class WebSocketManager:
         """Get room status"""
         users = self.get_room_users(room_id)
         collaboration_data = self.collaboration_data.get(room_id, {})
+        presence = self.get_presence_state(room_id)
         
         return {
             'roomId': room_id,
             'userCount': len(users),
             'users': users,
             'hasCollaborationData': bool(collaboration_data),
-            'dataTypes': list(collaboration_data.keys())
+            'dataTypes': list(collaboration_data.keys()),
+            'presence': presence
         }
     
     def cleanup_inactive_users(self):
-        """Clean up inactive users"""
+        """Clean up inactive users and expire stale presence"""
         current_time = datetime.now()
         inactive_users = []
         
@@ -448,6 +471,14 @@ class WebSocketManager:
         
         for user_id in inactive_users:
             self.handle_user_disconnect(self.users[user_id].socket_id)
+        
+        # Expire presence older than TTL
+        for room_id, mapping in list(self.presence.items()):
+            for uid, info in list(mapping.items()):
+                if (current_time - info.get('last_seen', current_time)).total_seconds() > self.presence_ttl_seconds:
+                    del mapping[uid]
+            if not mapping:
+                del self.presence[room_id]
     
     def run(self, host='0.0.0.0', port=5002, debug=False):
         """Run the WebSocket server"""
@@ -455,6 +486,37 @@ class WebSocketManager:
             self.socketio.run(self.app, host=host, port=port, debug=debug)
         else:
             raise RuntimeError("WebSocket manager not initialized")
+    
+    # -------------------------
+    # Presence helpers
+    # -------------------------
+    def _presence_touch(self, room_id: str, user_id: str, tenant: str, meta: dict):
+        now = datetime.now()
+        if room_id not in self.presence:
+            self.presence[room_id] = {}
+        self.presence[room_id][user_id] = {
+            'tenant': tenant,
+            'last_seen': now,
+            'meta': meta or {}
+        }
+    
+    def _presence_remove(self, room_id: str, user_id: str):
+        if room_id in self.presence and user_id in self.presence[room_id]:
+            del self.presence[room_id][user_id]
+            if not self.presence[room_id]:
+                del self.presence[room_id]
+    
+    def get_presence_state(self, room_id: str) -> dict:
+        state = []
+        mapping = self.presence.get(room_id, {})
+        for uid, info in mapping.items():
+            state.append({
+                'userId': uid,
+                'tenant': info.get('tenant'),
+                'lastSeen': info.get('last_seen').isoformat() if info.get('last_seen') else None,
+                'meta': info.get('meta', {})
+            })
+        return {'roomId': room_id, 'users': state, 'count': len(state)}
 
 # Global instance
 websocket_manager = WebSocketManager()

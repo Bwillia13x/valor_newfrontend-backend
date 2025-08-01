@@ -45,8 +45,8 @@ class AuthManager:
                     'error': 'Email already registered'
                 }
             
-            # Create new user
-            password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+            # Create new user (bcrypt)
+            password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
             new_user = self.User(
                 username=username,
                 email=email,
@@ -93,8 +93,12 @@ class AuthManager:
                     'error': 'Invalid username or password'
                 }
             
-            # Check password
-            if not check_password_hash(user.password_hash, password):
+            # Check password (bcrypt)
+            try:
+                valid_pw = bcrypt.checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8"))
+            except Exception:
+                valid_pw = False
+            if not valid_pw:
                 return {
                     'valid': False,
                     'error': 'Invalid username or password'
@@ -258,4 +262,4 @@ def auth_required(f):
 
 def get_current_user_id() -> Optional[int]:
     """Get current user ID from request context"""
-    return getattr(request, 'user_id', None) 
+    return getattr(request, 'user_id', None)

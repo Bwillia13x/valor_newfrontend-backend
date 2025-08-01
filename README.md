@@ -70,6 +70,18 @@ backend/
 └── README.md            # Backend documentation
 ```
 
+## ℹ️ Canonical Notice
+
+This README contains the canonical instructions for running, testing, and deploying. If any other document conflicts, defer to the “How to run, test, and deploy” section here and docs/production-setup.md.
+
+## 🔌 Port Conventions
+
+- Backend API: http://localhost:5002
+- Frontend: http://localhost:8000
+
+Public/system endpoints (no tenant header required): `/`, `/api/health`, websocket status, and `/metrics` (when enabled).
+Core data routes (runs, scenarios, financial-data, LBO, M&A, notes) enforce tenancy via tenant headers.
+
 ## 🚀 Quick Start
 
 ### Option 1: Full Stack (Recommended)
@@ -87,8 +99,8 @@ backend/
 
 3. **Access the application**:
    - Frontend: http://localhost:8000
-   - Backend API: http://localhost:5000
-   - Health Check: http://localhost:5000/api/health
+- Backend API: http://localhost:5002
+- Health Check: http://localhost:5002/api/health
 
 ### Option 2: Frontend Only
 
@@ -112,7 +124,7 @@ backend/
 
 2. **Access the application**:
    - Frontend: http://localhost:8000
-   - Backend: http://localhost:5000
+   - Backend: http://localhost:5002
 
 ## 📊 Usage Guide
 
@@ -237,7 +249,7 @@ The test suite validates:
 
 ### Base URL
 ```
-http://localhost:5000/api
+http://localhost:5002/api
 ```
 
 ### Run Management
@@ -285,12 +297,12 @@ docker-compose up --build
 - SQL injection protection via SQLAlchemy
 
 ### Production Recommendations
-- Implement proper JWT authentication
-- Add rate limiting
-- Use HTTPS in production
-- Implement proper password hashing
-- Add request logging and monitoring
-- Use environment variables for secrets
+- JWT authentication with refresh rotation and token revocation (see roadmap P6)
+- Rate limiting across sensitive endpoints; health endpoint unthrottled
+- Use HTTPS in production with TLS termination (see docs/production-setup.md)
+- Password hashing with bcrypt; secrets via environment-only (no secrets in repo)
+- Structured JSON logging with request_id and tenant_id; monitoring and metrics (/metrics exposed when enabled)
+- Use environment variables for secrets and CI/CD-managed configuration
 
 ## 🤝 Contributing
 

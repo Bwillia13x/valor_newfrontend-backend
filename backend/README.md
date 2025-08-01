@@ -61,7 +61,7 @@ backend/
    python run.py
    ```
 
-The API will be available at `http://localhost:5000`
+The API will be available at `http://localhost:5002`
 
 ### Docker Deployment
 
@@ -73,18 +73,22 @@ The API will be available at `http://localhost:5000`
 2. **Or build and run manually**:
    ```bash
    docker build -t valor-ivx-backend .
-   docker run -p 5000:5000 valor-ivx-backend
+   docker run -p 5002:5002 valor-ivx-backend
    ```
 
 ## 📚 API Documentation
 
 ### Base URL
 ```
-http://localhost:5000/api
+http://localhost:5002/api
 ```
 
 ### Authentication
-Currently uses a demo user system. In production, implement proper JWT authentication.
+- Password hashing: bcrypt
+- Demo user: bcrypt-hashed non-sensitive password “demo_password” for test flows
+- Minimal JWT guard remains across sensitive endpoints
+
+In production, move toward robust JWT with refresh rotation and revocation (see roadmap P6).
 
 ### Endpoints
 
@@ -226,7 +230,7 @@ The test suite covers:
 | `DATABASE_URL` | Database connection string | `sqlite:///valor_ivx.db` |
 | `SECRET_KEY` | Flask secret key | Auto-generated |
 | `JWT_SECRET_KEY` | JWT signing key | Auto-generated |
-| `PORT` | Server port | `5000` |
+| `PORT` | Server port | `5002` |
 | `HOST` | Server host | `0.0.0.0` |
 
 ### Database Configuration
@@ -264,7 +268,7 @@ SQLALCHEMY_DATABASE_URI = 'postgresql://user:pass@localhost/valor_ivx'
 
 3. **Start with Gunicorn**:
    ```bash
-   gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 120 app:app
+   gunicorn --bind 0.0.0.0:5002 --workers 4 --timeout 120 app:app
    ```
 
 ### Docker Production
@@ -277,7 +281,7 @@ SQLALCHEMY_DATABASE_URI = 'postgresql://user:pass@localhost/valor_ivx'
 2. **Run with environment variables**:
    ```bash
    docker run -d \
-     -p 5000:5000 \
+     -p 5002:5002 \
      -e FLASK_ENV=production \
      -e DATABASE_URL=postgresql://user:pass@host/valor_ivx \
      -e SECRET_KEY=your-secret-key \
@@ -302,6 +306,14 @@ SQLALCHEMY_DATABASE_URI = 'postgresql://user:pass@localhost/valor_ivx'
 - Implement API versioning
 
 ## 📊 Monitoring, Observability, and Logging
+
+[Canonical Notice]
+For production hardening, defer to docs/production-setup.md. This section summarizes current behavior.
+
+- Health endpoint: unthrottled
+- Structured logging via structlog with request_id and tenant_id correlation
+- Prometheus metrics exposed at `/metrics` when `FEATURE_PROMETHEUS_METRICS=true`
+- HTTP request instrumentation includes tenant labels
 
 ### Health Checks
 The application includes a health check endpoint at `/api/health` that returns:

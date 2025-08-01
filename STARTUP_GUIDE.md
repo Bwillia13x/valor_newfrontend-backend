@@ -1,5 +1,8 @@
 # Valor IVX - Startup Guide
 
+[Canonical Notice]
+These steps reflect the canonical DevX for local development. If anything conflicts elsewhere, defer to README.md → “How to run, test, and deploy” and docs/production-setup.md.
+
 ## 🚀 Quick Start
 
 ### Option 1: Full-Stack Startup (Recommended)
@@ -23,6 +26,14 @@ python3 -m http.server 8000
 - **Backend API**: http://localhost:5002
 - **Backend Health**: http://localhost:5002/api/health
 
+## 🔐 Auth, Tenancy, and Health
+
+- Demo user: bcrypt-hashed non-sensitive password “demo_password” (for test flows)
+- JWT guard: minimal guard across sensitive endpoints
+- Tenant enforcement: required on runs, scenarios, financial-data, LBO, M&A, notes
+- Public/system endpoints: `/`, `/api/health`, websocket status, and `/metrics` (when enabled)
+- Health endpoint: unthrottled
+
 ## 🧪 Testing
 
 ### Test Backend Only
@@ -33,6 +44,23 @@ python3 test_backend.py
 ### Test Full-Stack Integration
 ```bash
 python3 test_fullstack.py
+```
+
+### Sample Requests
+
+Health (no tenant required):
+```bash
+curl -s http://localhost:5002/api/health
+```
+
+Protected route with tenant:
+```bash
+curl -s -H "X-Tenant-ID: demo" http://localhost:5002/api/runs
+```
+
+Metrics (when enabled):
+```bash
+curl -s http://localhost:5002/metrics
 ```
 
 ## 🔧 Troubleshooting
@@ -51,6 +79,7 @@ lsof -ti:8000 | xargs kill -9 2>/dev/null
 1. Check if backend is running: `curl http://localhost:5002/api/health`
 2. Check backend logs: `cat backend/backend.log`
 3. Restart backend: `./start_backend.sh`
+4. If metrics not found, ensure feature flag is enabled in settings (FEATURE_PROMETHEUS_METRICS)
 
 ### Frontend Issues
 1. Check if frontend is running: `curl http://localhost:8000`
@@ -130,4 +159,4 @@ If you encounter issues:
 1. Check the logs in `backend/backend.log` and `frontend.log`
 2. Run the test suites to identify problems
 3. Ensure all dependencies are installed
-4. Verify ports are not in use by other applications 
+4. Verify ports are not in use by other applications

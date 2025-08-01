@@ -1,6 +1,82 @@
 groups:
-  - name: valor-ivx-slos
+  - name: valor-ivx-alerts
     rules:
+      # Availability SLO (example target 99.9% over 30d; alert on fast burn proxy)
+      - alert: APIAvailabilityFastBurn
+        expr: |
+          (sum(rate(http_requests_total{status!~"2..|3.."}[5m])) by () / sum(rate(http_requests_total[5m])) by ()) > 0.01
+        for: 10m
+        labels:
+          severity: critical
+          service: valor-ivx
+        annotations:
+          summary: "API availability degradation (fast burn)"
+          description: "Error ratio over last 5m exceeds 1%. Investigate endpoints and recent deploys."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#api-availability-slo-breach"
+
+      # Latency SLO proxies (P95/P99)
+      - alert: APILatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          service: valor-ivx
+        annotations:
+          summary: "API latency P95 elevated"
+          description: "P95 latency exceeds 500ms over 10m window."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#api-latency-slo-breach"
+
+      - alert: APILatencyP99High
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1.0
+        for: 10m
+        labels:
+          severity: critical
+          service: valor-ivx
+        annotations:
+          summary: "API latency P99 elevated"
+          description: "P99 latency exceeds 1s over 10m window."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#api-latency-slo-breach"
+
+      # Health check failing
+      - alert: HealthEndpointFailing
+        expr: |
+          probe_success{job="valor-ivx-health"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: valor-ivx
+        annotations:
+          summary: "Health endpoint failing"
+          description: "Prober indicates /api/health is failing for 5 minutes."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#service-down"
+
+      # Readiness failing
+      - alert: ReadinessDegraded
+        expr: |
+          probe_success{job="valor-ivx-readiness"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: valor-ivx
+        annotations:
+          summary: "Readiness degraded"
+          description: "Readiness probe failing. DB/provider/cache check one or more failing."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#database-connection-issues"
+
+      # Error rate spike
+      - alert: APIErrorRateHigh
+        expr: |
+          sum(rate(http_requests_total{status!~"2..|3.."}[5m])) by () > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: valor-ivx
+        annotations:
+          summary: "High API error rate"
+          description: "Non-2xx/3xx responses exceed 1 req/s over 5 minutes."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#high-error-rate"
       # API Availability SLO Alerts
       - alert: APIAvailabilitySLOBreach
         expr: rate(http_requests_total{status=~"2..|3.."}[5m]) / rate(http_requests_total[5m]) < 0.999

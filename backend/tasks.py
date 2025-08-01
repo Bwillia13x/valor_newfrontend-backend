@@ -1,6 +1,9 @@
+import time
+import logging
+from typing import List, Dict, Any
+
 from celery import Celery
-from celery.signals import task_prerun, task_postrun, task_failure
-from typing import Any, Dict, List
+from celery.signals import task_prerun, task_postrun, task_success, task_failure
 import contextvars
 
 from .settings import settings
@@ -12,7 +15,7 @@ from .metrics import (
     celery_task_failed,
 )
 from .logging import logger
-from .ml_models.registry import get_model, registry
+from .ml_models.registry import get_model, registry, track_model_performance
 
 celery_app = Celery("valor_ivx", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
 
@@ -90,15 +93,22 @@ def run_revenue_prediction(ticker: str, historical_data: List[Dict[str, Any]]) -
         pass
 
     try:
+        start_time = time.time()
         predictor = get_model(base_alias)
         effective_alias = registry._last_resolution.get(base_alias, base_alias)  # introspection for logs/metrics
         result = predictor.predict(historical_data)
+        execution_time = time.time() - start_time
+        
+        # Track performance
+        track_model_performance(effective_alias, execution_time)
+        
         logger.info(
             "revenue_prediction_completed",
             ticker=ticker,
             model=base_alias,
             variant=variant or None,
             effective_model=effective_alias,
+            execution_time=execution_time,
         )
         return result
     except Exception as e:
@@ -128,14 +138,21 @@ def run_portfolio_optimization(assets: List[Dict[str, Any]], constraints: Dict[s
         pass
 
     try:
+        start_time = time.time()
         optimizer = get_model(base_alias)
         effective_alias = registry._last_resolution.get(base_alias, base_alias)
         result = optimizer.optimize(assets, constraints)
+        execution_time = time.time() - start_time
+        
+        # Track performance
+        track_model_performance(effective_alias, execution_time)
+        
         logger.info(
             "portfolio_optimization_completed",
             model=base_alias,
             variant=variant or None,
             effective_model=effective_alias,
+            execution_time=execution_time,
         )
         return result
     except Exception as e:

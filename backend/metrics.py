@@ -29,6 +29,9 @@ CACHE_HIT_RATIO: Optional[Gauge] = None
 MODEL_INFERENCE_DURATION_SECONDS: Optional[Histogram] = None
 MODEL_PREDICTIONS_TOTAL: Optional[Counter] = None
 MODEL_ERRORS_TOTAL: Optional[Counter] = None
+CIRCUIT_BREAKER_METRICS: Optional[Counter] = None
+DATA_PROVIDER_REQUESTS_TOTAL: Optional[Counter] = None
+DATA_PROVIDER_DURATION_SECONDS: Optional[Histogram] = None
 
 # Optional extended labels for model/variant metrics to avoid cardinality blowup
 FEATURE_MODEL_VARIANT_METRICS: bool = getattr(settings, "FEATURE_MODEL_VARIANT_METRICS", False)
@@ -54,6 +57,7 @@ def _init_metrics() -> None:
     global CELERY_TASKS_TOTAL, CELERY_TASK_DURATION_SECONDS
     global ACTIVE_USERS, CACHE_HIT_RATIO
     global MODEL_INFERENCE_DURATION_SECONDS, MODEL_PREDICTIONS_TOTAL, MODEL_ERRORS_TOTAL
+    global CIRCUIT_BREAKER_METRICS, DATA_PROVIDER_REQUESTS_TOTAL, DATA_PROVIDER_DURATION_SECONDS
 
     reg = get_registry()
 
@@ -114,6 +118,30 @@ def _init_metrics() -> None:
             "model_errors_total",
             "Total model errors",
             ["model", "variant"] if FEATURE_MODEL_VARIANT_METRICS else ["model"],
+            registry=reg,
+        )
+    
+    # Phase 7: Data Provider and Circuit Breaker Metrics
+    if CIRCUIT_BREAKER_METRICS is None:
+        CIRCUIT_BREAKER_METRICS = Counter(
+            "circuit_breaker_state_changes_total",
+            "Total circuit breaker state changes",
+            ["circuit_name", "state"],
+            registry=reg,
+        )
+    if DATA_PROVIDER_REQUESTS_TOTAL is None:
+        DATA_PROVIDER_REQUESTS_TOTAL = Counter(
+            "data_provider_requests_total",
+            "Total data provider requests",
+            ["provider", "data_type", "status"],
+            registry=reg,
+        )
+    if DATA_PROVIDER_DURATION_SECONDS is None:
+        DATA_PROVIDER_DURATION_SECONDS = Histogram(
+            "data_provider_duration_seconds",
+            "Data provider request duration in seconds",
+            buckets=(0.1, 0.2, 0.5, 1, 2, 5, 10, 30),
+            labelnames=["provider", "data_type"],
             registry=reg,
         )
 

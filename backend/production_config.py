@@ -1,266 +1,270 @@
 """
-Production Configuration for Valor IVX Backend
-Contains production-specific settings and security configurations
+Production Configuration for Valor IVX Platform
+Enterprise-grade settings for security, performance, and scalability
 """
 
 import os
-from datetime import timedelta
+from typing import List, Dict, Any
+from pydantic import BaseSettings, validator
 
-class ProductionConfig:
-    """Production configuration class"""
+
+class ProductionSettings(BaseSettings):
+    """Production configuration settings"""
     
-    # Flask Configuration
-    DEBUG = False
-    TESTING = False
-    
-    # Security Configuration
-    SECRET_KEY = os.environ.get('SECRET_KEY')
-    if not SECRET_KEY:
-        raise ValueError("SECRET_KEY environment variable is required for production")
-    
-    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
-    if not JWT_SECRET_KEY:
-        raise ValueError("JWT_SECRET_KEY environment variable is required for production")
-    
-    # JWT Configuration
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)  # Shorter token lifetime for security
-    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
-    JWT_ERROR_MESSAGE_KEY = 'error'
+    # Environment
+    ENVIRONMENT: str = "production"
+    DEBUG: bool = False
     
     # Database Configuration
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
-    if not SQLALCHEMY_DATABASE_URI:
-        raise ValueError("DATABASE_URL environment variable is required for production")
+    DATABASE_URL: str
+    DATABASE_POOL_SIZE: int = 20
+    DATABASE_MAX_OVERFLOW: int = 30
+    DATABASE_POOL_TIMEOUT: int = 30
+    DATABASE_POOL_RECYCLE: int = 3600
     
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_size': 10,
-        'pool_recycle': 3600,
-        'pool_pre_ping': True,
-        'max_overflow': 20
-    }
+    # Redis Configuration
+    REDIS_URL: str
+    REDIS_MAX_CONNECTIONS: int = 50
+    REDIS_SOCKET_TIMEOUT: int = 5
+    REDIS_SOCKET_CONNECT_TIMEOUT: int = 5
     
-    # CORS Configuration
-    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', '').split(',')
-    if not CORS_ORIGINS or CORS_ORIGINS == ['']:
-        CORS_ORIGINS = ['https://valor-ivx.com', 'https://www.valor-ivx.com']
+    # Security Settings
+    SECRET_KEY: str
+    JWT_SECRET_KEY: str
+    JWT_ACCESS_TOKEN_EXPIRES: int = 3600  # 1 hour
+    JWT_REFRESH_TOKEN_EXPIRES: int = 2592000  # 30 days
+    JWT_ALGORITHM: str = "HS256"
     
-    # Rate Limiting Configuration
-    RATE_LIMIT_ENABLED = True
-    RATE_LIMIT_STORAGE_URL = os.environ.get('REDIS_URL', 'memory://')
+    # CORS Settings
+    CORS_ORIGINS: List[str] = []
+    CORS_ALLOW_CREDENTIALS: bool = True
+    CORS_MAX_AGE: int = 3600
+    
+    # Rate Limiting
+    RATE_LIMIT_DEFAULT: str = "1000 per hour"
+    RATE_LIMIT_STORAGE_URL: str = "redis://localhost:6379/1"
+    
+    # External APIs
+    ALPHA_VANTAGE_API_KEY: str
+    ALPHA_VANTAGE_RATE_LIMIT: int = 5
+    ALPHA_VANTAGE_BACKUP_KEYS: List[str] = []
+    
+    # Circuit Breaker Settings
+    CIRCUIT_BREAKER_ENABLED: bool = True
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
+    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 60
+    CIRCUIT_BREAKER_EXPECTED_EXCEPTION: List[str] = ["requests.exceptions.RequestException"]
+    
+    # Retry Settings
+    RETRY_MAX_ATTEMPTS: int = 3
+    RETRY_BASE_DELAY: float = 1.0
+    RETRY_MAX_DELAY: float = 60.0
+    RETRY_BACKOFF_MULTIPLIER: float = 2.0
+    
+    # Caching Configuration
+    CACHE_TYPE: str = "redis"
+    CACHE_REDIS_URL: str
+    CACHE_DEFAULT_TIMEOUT: int = 300
+    CACHE_KEY_PREFIX: str = "valor_ivx:"
     
     # Logging Configuration
-    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
-    LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "json"
+    LOG_FILE: str = "/app/logs/valor_ivx.log"
+    LOG_MAX_SIZE: int = 100 * 1024 * 1024  # 100MB
+    LOG_BACKUP_COUNT: int = 5
     
-    # Alpha Vantage Configuration
-    ALPHA_VANTAGE_API_KEY = os.environ.get('ALPHA_VANTAGE_API_KEY')
-    if not ALPHA_VANTAGE_API_KEY:
-        print("WARNING: ALPHA_VANTAGE_API_KEY not set. Financial data features will be disabled.")
+    # Monitoring and Metrics
+    ENABLE_METRICS: bool = True
+    METRICS_PORT: int = 9090
+    METRICS_PATH: str = "/metrics"
+    ENABLE_HEALTH_CHECKS: bool = True
+    HEALTH_CHECK_INTERVAL: int = 30
     
-    # Redis Configuration (for caching and sessions)
-    REDIS_URL = os.environ.get('REDIS_URL')
+    # Performance Settings
+    WORKER_PROCESSES: int = 4
+    WORKER_THREADS: int = 2
+    WORKER_CONNECTIONS: int = 1000
+    WORKER_TIMEOUT: int = 120
+    WORKER_KEEPALIVE: int = 2
+    WORKER_MAX_REQUESTS: int = 1000
+    WORKER_MAX_REQUESTS_JITTER: int = 100
+    
+    # File Upload Settings
+    MAX_CONTENT_LENGTH: int = 100 * 1024 * 1024  # 100MB
+    UPLOAD_FOLDER: str = "/app/uploads"
+    ALLOWED_EXTENSIONS: List[str] = ["csv", "xlsx", "xls", "json"]
+    
+    # WebSocket Settings
+    WEBSOCKET_PING_INTERVAL: int = 25
+    WEBSOCKET_PING_TIMEOUT: int = 10
+    WEBSOCKET_MAX_CONNECTIONS: int = 1000
+    
+    # ML Model Settings
+    ML_MODEL_CACHE_SIZE: int = 100
+    ML_MODEL_TIMEOUT: int = 30
+    ML_MODEL_BATCH_SIZE: int = 32
+    
+    # Feature Flags
+    ENABLE_ML_MODELS: bool = True
+    ENABLE_COLLABORATION: bool = True
+    ENABLE_REAL_TIME_UPDATES: bool = True
+    ENABLE_ADVANCED_ANALYTICS: bool = True
+    
+    # Collaboration Settings
+    COLLAB_ENABLE_OT_ENGINE: bool = True
+    COLLAB_SNAPSHOT_INTERVAL: int = 50
+    COLLAB_REDIS_CHANNEL_PREFIX: str = "collab"
+    COLLAB_MAX_ROOM_SIZE: int = 50
+    COLLAB_RATE_LIMIT_OPS_PER_MIN: int = 120
+    
+    # SSL/TLS Settings
+    SSL_CERT_FILE: str = "/etc/ssl/certs/cert.pem"
+    SSL_KEY_FILE: str = "/etc/ssl/private/key.pem"
+    SSL_VERIFY_MODE: str = "CERT_REQUIRED"
     
     # Session Configuration
-    SESSION_TYPE = 'redis' if REDIS_URL else 'filesystem'
-    PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
-    
-    # Validate Redis in production
-    if os.environ.get('FLASK_ENV') == 'production':
-        if not REDIS_URL:
-            raise ValueError("REDIS_URL environment variable is required for production")
-    
-    # Enhanced Security Headers
-    SECURITY_HEADERS = {
-        'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options': 'DENY',
-        'X-XSS-Protection': '1; mode=block',
-        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
-        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://www.alphavantage.co; frame-ancestors 'none';",
-        'Referrer-Policy': 'strict-origin-when-cross-origin',
-        'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
-        'X-Download-Options': 'noopen',
-        'X-Permitted-Cross-Domain-Policies': 'none',
-        'X-DNS-Prefetch-Control': 'off'
-    }
-    
-    # SSL/HTTPS Configuration
-    SSL_ENABLED = os.environ.get('SSL_ENABLED', 'true').lower() == 'true'
-    SSL_CERT_PATH = os.environ.get('SSL_CERT_PATH')
-    SSL_KEY_PATH = os.environ.get('SSL_KEY_PATH')
-    
-    # Validate SSL certificates in production
-    if os.environ.get('FLASK_ENV') == 'production' and SSL_ENABLED:
-        if not SSL_CERT_PATH or not SSL_KEY_PATH:
-            raise ValueError("SSL_CERT_PATH and SSL_KEY_PATH are required for production HTTPS")
-    
-    # File Upload Configuration
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
-    UPLOAD_FOLDER = '/tmp/valor_ivx_uploads'
-    
-    # Validate upload settings in production
-    if os.environ.get('FLASK_ENV') == 'production':
-        if not os.path.exists(UPLOAD_FOLDER):
-            os.makedirs(UPLOAD_FOLDER)
+    SESSION_TYPE: str = "redis"
+    SESSION_REDIS: str
+    SESSION_KEY_PREFIX: str = "session:"
+    SESSION_PERMANENT: bool = False
+    SESSION_LIFETIME: int = 3600
     
     # Email Configuration (for notifications)
-    MAIL_SERVER = os.environ.get('MAIL_SERVER')
-    MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
-    MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
-    MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
-    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
-    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER')
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True
+    SMTP_USE_SSL: bool = False
     
-    # Validate email settings in production
-    if os.environ.get('FLASK_ENV') == 'production':
-        if not MAIL_SERVER or not MAIL_USERNAME or not MAIL_PASSWORD:
-            raise ValueError("MAIL_SERVER, MAIL_USERNAME, and MAIL_PASSWORD are required for production email notifications")
-        if not MAIL_DEFAULT_SENDER:
-            MAIL_DEFAULT_SENDER = f"no-reply@valor-ivx.com"
-    
-    # Monitoring Configuration
-    ENABLE_METRICS = os.environ.get('ENABLE_METRICS', 'false').lower() == 'true'
-    METRICS_PORT = int(os.environ.get('METRICS_PORT', 9090))
+    # CDN Configuration
+    CDN_URL: str = ""
+    CDN_ENABLED: bool = False
     
     # Backup Configuration
-    BACKUP_ENABLED = os.environ.get('BACKUP_ENABLED', 'true').lower() == 'true'
-    BACKUP_SCHEDULE = os.environ.get('BACKUP_SCHEDULE', '0 2 * * *')  # Daily at 2 AM
-    BACKUP_RETENTION_DAYS = int(os.environ.get('BACKUP_RETENTION_DAYS', 30))
+    BACKUP_ENABLED: bool = True
+    BACKUP_SCHEDULE: str = "0 2 * * *"  # Daily at 2 AM
+    BACKUP_RETENTION_DAYS: int = 30
+    BACKUP_S3_BUCKET: str = ""
     
-    # Performance Configuration
-    WORKER_PROCESSES = int(os.environ.get('WORKER_PROCESSES', 4))
-    WORKER_TIMEOUT = int(os.environ.get('WORKER_TIMEOUT', 120))
-    WORKER_MAX_REQUESTS = int(os.environ.get('WORKER_MAX_REQUESTS', 1000))
-    
-    # Cache Configuration
-    CACHE_TYPE = os.environ.get('CACHE_TYPE', 'redis' if REDIS_URL else 'simple')
-    CACHE_REDIS_URL = REDIS_URL
-    CACHE_DEFAULT_TIMEOUT = int(os.environ.get('CACHE_DEFAULT_TIMEOUT', 300))
-    
-    @staticmethod
-    def init_app(app):
-        """Initialize application with production settings"""
-        
-        # Set up logging
-        import logging
-        from logging.handlers import RotatingFileHandler
-        
-        if not app.debug and not app.testing:
-            # File handler
-            if not os.path.exists('logs'):
-                os.mkdir('logs')
-            
-            file_handler = RotatingFileHandler(
-                'logs/valor_ivx.log', 
-                maxBytes=10240000, 
-                backupCount=10
-            )
-            file_handler.setFormatter(logging.Formatter(
-                '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-            ))
-            file_handler.setLevel(logging.INFO)
-            app.logger.addHandler(file_handler)
-            
-            # Console handler
-            console_handler = logging.StreamHandler()
-            console_handler.setLevel(logging.INFO)
-            console_handler.setFormatter(logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            ))
-            app.logger.addHandler(console_handler)
-            
-            app.logger.setLevel(logging.INFO)
-            app.logger.info('Valor IVX startup')
-        
-        # Enhanced security headers middleware
-        @app.after_request
-        def add_security_headers(response):
-            # Add all security headers
-            for header, value in ProductionConfig.SECURITY_HEADERS.items():
-                response.headers[header] = value
-            
-            # Add additional security headers based on environment
-            if ProductionConfig.SSL_ENABLED:
-                response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
-            
-            # Add cache control headers for API responses
-            if response.headers.get('Content-Type', '').startswith('application/json'):
-                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-                response.headers['Pragma'] = 'no-cache'
-                response.headers['Expires'] = '0'
-            
-            return response
-        
-        # Enhanced error handling
-        @app.errorhandler(404)
-        def not_found_error(error):
-            return {'error': 'Not found'}, 404
-        
-        @app.errorhandler(500)
-        def internal_error(error):
-            app.logger.error(f'Server Error: {error}')
-            return {'error': 'Internal server error'}, 500
-        
-        @app.errorhandler(413)
-        def too_large(error):
-            return {'error': 'File too large'}, 413
-        
-        @app.errorhandler(429)
-        def too_many_requests(error):
-            return {'error': 'Too many requests'}, 429
-        
-        @app.errorhandler(401)
-        def unauthorized(error):
-            return {'error': 'Unauthorized'}, 401
-        
-        @app.errorhandler(403)
-        def forbidden(error):
-            return {'error': 'Forbidden'}, 403
-
-class StagingConfig(ProductionConfig):
-    """Staging configuration (similar to production but with some debugging)"""
-    
-    DEBUG = True
-    LOG_LEVEL = 'DEBUG'
-    
-    # Allow more CORS origins for testing
-    CORS_ORIGINS = [
-        'http://localhost:8000',
-        'http://127.0.0.1:8000',
-        'https://staging.valor-ivx.com',
-        'https://valor-ivx-staging.herokuapp.com'
-    ]
-    
-    # Less strict security for staging
-    SECURITY_HEADERS = {
-        'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options': 'SAMEORIGIN',
-        'X-XSS-Protection': '1; mode=block',
-        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://www.alphavantage.co;"
+    # Security Headers
+    SECURITY_HEADERS: Dict[str, str] = {
+        "X-Frame-Options": "DENY",
+        "X-Content-Type-Options": "nosniff",
+        "X-XSS-Protection": "1; mode=block",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
     }
     
-    # Disable SSL requirement for staging
-    SSL_ENABLED = False
+    @validator('CORS_ORIGINS', pre=True)
+    def parse_cors_origins(cls, v):
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(',')]
+        return v
+    
+    @validator('ALPHA_VANTAGE_BACKUP_KEYS', pre=True)
+    def parse_backup_keys(cls, v):
+        if isinstance(v, str):
+            return [key.strip() for key in v.split(',') if key.strip()]
+        return v
+    
+    @validator('ALLOWED_EXTENSIONS', pre=True)
+    def parse_allowed_extensions(cls, v):
+        if isinstance(v, str):
+            return [ext.strip().lower() for ext in v.split(',')]
+        return v
+    
+    class Config:
+        env_file = ".env.production"
+        case_sensitive = True
 
-class DevelopmentConfig(ProductionConfig):
-    """Development configuration"""
-    
-    DEBUG = True
-    LOG_LEVEL = 'DEBUG'
-    
-    # Allow all CORS origins for development
-    CORS_ORIGINS = ['*']
-    
-    # Minimal security for development
-    SECURITY_HEADERS = {
-        'X-Content-Type-Options': 'nosniff'
+
+# Initialize production settings
+production_settings = ProductionSettings()
+
+
+def get_database_config() -> Dict[str, Any]:
+    """Get database configuration for SQLAlchemy"""
+    return {
+        'SQLALCHEMY_DATABASE_URI': production_settings.DATABASE_URL,
+        'SQLALCHEMY_ENGINE_OPTIONS': {
+            'pool_size': production_settings.DATABASE_POOL_SIZE,
+            'max_overflow': production_settings.DATABASE_MAX_OVERFLOW,
+            'pool_timeout': production_settings.DATABASE_POOL_TIMEOUT,
+            'pool_recycle': production_settings.DATABASE_POOL_RECYCLE,
+            'pool_pre_ping': True,
+        },
+        'SQLALCHEMY_TRACK_MODIFICATIONS': False,
     }
-    
-    # Disable SSL requirement for development
-    SSL_ENABLED = False
-    
-    # Use in-memory database for development
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
-    
-    # Disable rate limiting for development
-    RATE_LIMIT_ENABLED = False
+
+
+def get_redis_config() -> Dict[str, Any]:
+    """Get Redis configuration"""
+    return {
+        'url': production_settings.REDIS_URL,
+        'max_connections': production_settings.REDIS_MAX_CONNECTIONS,
+        'socket_timeout': production_settings.REDIS_SOCKET_TIMEOUT,
+        'socket_connect_timeout': production_settings.REDIS_SOCKET_CONNECT_TIMEOUT,
+        'retry_on_timeout': True,
+        'health_check_interval': 30,
+    }
+
+
+def get_gunicorn_config() -> Dict[str, Any]:
+    """Get Gunicorn configuration"""
+    return {
+        'bind': '0.0.0.0:5002',
+        'workers': production_settings.WORKER_PROCESSES,
+        'worker_class': 'sync',
+        'worker_connections': production_settings.WORKER_CONNECTIONS,
+        'timeout': production_settings.WORKER_TIMEOUT,
+        'keepalive': production_settings.WORKER_KEEPALIVE,
+        'max_requests': production_settings.WORKER_MAX_REQUESTS,
+        'max_requests_jitter': production_settings.WORKER_MAX_REQUESTS_JITTER,
+        'preload_app': True,
+        'access_log_format': '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s',
+        'accesslog': '/app/logs/gunicorn_access.log',
+        'errorlog': '/app/logs/gunicorn_error.log',
+        'loglevel': 'info',
+    }
+
+
+def get_cache_config() -> Dict[str, Any]:
+    """Get cache configuration"""
+    return {
+        'CACHE_TYPE': production_settings.CACHE_TYPE,
+        'CACHE_REDIS_URL': production_settings.CACHE_REDIS_URL,
+        'CACHE_DEFAULT_TIMEOUT': production_settings.CACHE_DEFAULT_TIMEOUT,
+        'CACHE_KEY_PREFIX': production_settings.CACHE_KEY_PREFIX,
+        'CACHE_OPTIONS': {
+            'socket_timeout': 5,
+            'socket_connect_timeout': 5,
+            'retry_on_timeout': True,
+        }
+    }
+
+
+def get_session_config() -> Dict[str, Any]:
+    """Get session configuration"""
+    return {
+        'SESSION_TYPE': production_settings.SESSION_TYPE,
+        'SESSION_REDIS': production_settings.SESSION_REDIS,
+        'SESSION_KEY_PREFIX': production_settings.SESSION_KEY_PREFIX,
+        'SESSION_PERMANENT': production_settings.SESSION_PERMANENT,
+        'PERMANENT_SESSION_LIFETIME': production_settings.SESSION_LIFETIME,
+    }
+
+
+def get_jwt_config() -> Dict[str, Any]:
+    """Get JWT configuration"""
+    return {
+        'JWT_SECRET_KEY': production_settings.JWT_SECRET_KEY,
+        'JWT_ACCESS_TOKEN_EXPIRES': production_settings.JWT_ACCESS_TOKEN_EXPIRES,
+        'JWT_REFRESH_TOKEN_EXPIRES': production_settings.JWT_REFRESH_TOKEN_EXPIRES,
+        'JWT_ALGORITHM': production_settings.JWT_ALGORITHM,
+        'JWT_TOKEN_LOCATION': ['headers'],
+        'JWT_HEADER_NAME': 'Authorization',
+        'JWT_HEADER_TYPE': 'Bearer',
+    }

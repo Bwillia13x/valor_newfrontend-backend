@@ -1,607 +1,860 @@
 """
-Advanced Analytics Engine for Valor IVX
-Phase 7 Implementation
+Advanced Analytics Engine for Valor IVX Platform
+Phase 9: Advanced Analytics and Machine Learning
 
-This module provides machine learning and advanced analytics capabilities:
-- Predictive modeling for financial metrics
-- Risk assessment and scoring
-- Market trend analysis
-- Anomaly detection
-- Portfolio optimization
+This module provides comprehensive analytics capabilities including:
+- Real-time market analysis
+- Sentiment analysis
+- Risk modeling
+- Performance analytics
+- Predictive analytics
+- Business intelligence
 """
 
+import asyncio
+import json
+import logging
+import time
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Tuple, Union
+from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
-import logging
-from sklearn.ensemble import RandomForestRegressor, IsolationForest
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, r2_score
-import joblib
-import json
+from scipy import stats
+from scipy.optimize import minimize
+import yfinance as yf
+import requests
+from textblob import TextBlob
+import redis
+from collections import defaultdict, deque
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+from .ml_models.registry import ModelRegistry
+from .ml_models.sentiment_analyzer import SentimentAnalyzer
+from .ml_models.risk_assessor import RiskAssessor
+from .ml_models.portfolio_optimizer import PortfolioOptimizer
+from .ml_models.revenue_predictor import RevenuePredictor
+from .cache import cache_manager
+from .settings import settings
+
 logger = logging.getLogger(__name__)
 
+
 @dataclass
-class PredictionResult:
-    """Result of a prediction analysis"""
-    predicted_value: float
-    confidence_interval: Tuple[float, float]
-    confidence_level: float
-    model_accuracy: float
-    features_importance: Dict[str, float]
+class MarketSignal:
+    """Market signal data structure"""
+    symbol: str
+    signal_type: str  # 'buy', 'sell', 'hold', 'alert'
+    confidence: float
+    strength: float
     timestamp: datetime
+    indicators: Dict[str, Any]
+    description: str
+
 
 @dataclass
-class RiskAssessment:
-    """Risk assessment result"""
-    risk_score: float
-    risk_level: str  # 'low', 'medium', 'high', 'critical'
-    risk_factors: List[str]
-    recommendations: List[str]
-    confidence: float
+class RiskMetrics:
+    """Risk metrics data structure"""
+    var_95: float  # Value at Risk 95%
+    var_99: float  # Value at Risk 99%
+    expected_shortfall: float
+    volatility: float
+    beta: float
+    sharpe_ratio: float
+    sortino_ratio: float
+    max_drawdown: float
+    correlation_matrix: np.ndarray
+    stress_test_results: Dict[str, float]
+
 
 @dataclass
-class MarketTrend:
-    """Market trend analysis result"""
-    trend_direction: str  # 'bullish', 'bearish', 'neutral'
-    trend_strength: float
-    trend_duration: int  # days
-    support_level: float
-    resistance_level: float
+class SentimentAnalysis:
+    """Sentiment analysis results"""
+    overall_sentiment: float  # -1 to 1
+    sentiment_score: float
     confidence: float
+    sources: List[str]
+    keywords: List[str]
+    timestamp: datetime
+    breakdown: Dict[str, float]
 
-class AnalyticsEngine:
-    """Advanced analytics engine with machine learning capabilities"""
-    
-    def __init__(self):
-        self.models = {}
-        self.scalers = {}
-        self.feature_importance_cache = {}
-        self.model_accuracy_cache = {}
-        
-        # Initialize models
-        self._initialize_models()
-        from ml_models.portfolio_optimizer import PortfolioOptimizer
-        from ml_models.sentiment_analyzer import SentimentAnalyzer
-    
-    def _initialize_models(self):
-        """Dynamically initialize machine learning models from the ml_models directory."""
-        from ml_models.revenue_predictor import RevenuePredictor
-        from ml_models.risk_assessor import RiskAssessor
-        from ml_models.portfolio_optimizer import PortfolioOptimizer
-        from ml_models.sentiment_analyzer import SentimentAnalyzer
 
-        self.models = {
-            'revenue': RevenuePredictor(),
-            'risk': RiskAssessor(),
-            'portfolio': PortfolioOptimizer(),
-            'sentiment': SentimentAnalyzer(),
-            'market_trend': LinearRegression()
-        }
+class AdvancedAnalyticsEngine:
+    """Advanced analytics engine for real-time financial analysis"""
+    
+    def __init__(self, redis_client: Optional[redis.Redis] = None):
+        self.redis_client = redis_client
+        self.model_registry = ModelRegistry()
+        self.sentiment_analyzer = SentimentAnalyzer()
+        self.risk_assessor = RiskAssessor()
+        self.portfolio_optimizer = PortfolioOptimizer()
+        self.revenue_predictor = RevenuePredictor()
         
-        # Initialize scalers
-        self.scalers['revenue_prediction'] = StandardScaler()
-        self.scalers['risk_assessment'] = StandardScaler()
-        self.scalers['market_trend'] = StandardScaler()
-        logger.info("Analytics models initialized: %s", list(self.models.keys()))
+        # Initialize caches
+        self.market_data_cache = {}
+        self.sentiment_cache = {}
+        self.risk_cache = {}
+        
+        # Real-time data streams
+        self.market_streams = {}
+        self.alert_streams = {}
+        
+        # Performance tracking
+        self.performance_metrics = defaultdict(list)
+        self.analytics_history = deque(maxlen=1000)
+        
+        logger.info("Advanced Analytics Engine initialized")
     
-    def predict_revenue_growth(self, financial_data: Dict[str, Any], 
-                             forecast_periods: int = 5) -> PredictionResult:
-        """Predict revenue growth using machine learning"""
+    async def analyze_market_sentiment(self, symbol: str, timeframe: str = "1d") -> SentimentAnalysis:
+        """Analyze market sentiment for a given symbol"""
+        cache_key = f"sentiment:{symbol}:{timeframe}"
+        
+        # Check cache first
+        cached_result = await cache_manager.get(cache_key)
+        if cached_result:
+            return SentimentAnalysis(**cached_result)
+        
         try:
-            # Extract features from financial data
-            features = self._extract_revenue_features(financial_data)
+            # Get news and social media data
+            news_data = await self._fetch_news_data(symbol)
+            social_data = await self._fetch_social_data(symbol)
             
-            if len(features) < 10:  # Need minimum data points
-                raise ValueError("Insufficient data for prediction")
+            # Analyze sentiment
+            news_sentiment = self.sentiment_analyzer.analyze_text_list([item['title'] + ' ' + item.get('content', '') for item in news_data])
+            social_sentiment = self.sentiment_analyzer.analyze_text_list([item['text'] for item in social_data])
             
-            # Prepare training data
-            X, y = self._prepare_revenue_training_data(features)
+            # Combine sentiments with weights
+            overall_sentiment = (news_sentiment['sentiment'] * 0.7 + social_sentiment['sentiment'] * 0.3)
+            confidence = (news_sentiment['confidence'] * 0.7 + social_sentiment['confidence'] * 0.3)
             
-            if len(X) < 5:  # Need minimum training samples
-                raise ValueError("Insufficient training data")
+            # Extract keywords
+            keywords = self._extract_keywords(news_data + social_data)
             
-            # Train model
-            model = self.models['revenue_prediction']
-            scaler = self.scalers['revenue_prediction']
-            
-            X_scaled = scaler.fit_transform(X)
-            model.fit(X_scaled, y)
-            
-            # Make prediction
-            latest_features = features[-1]
-            latest_scaled = scaler.transform([latest_features])
-            prediction = model.predict(latest_scaled)[0]
-            
-            # Calculate confidence interval
-            confidence_interval = self._calculate_confidence_interval(
-                model, X_scaled, y, prediction
+            result = SentimentAnalysis(
+                overall_sentiment=overall_sentiment,
+                sentiment_score=overall_sentiment,
+                confidence=confidence,
+                sources=['news', 'social_media'],
+                keywords=keywords,
+                timestamp=datetime.utcnow(),
+                breakdown={
+                    'news': news_sentiment['sentiment'],
+                    'social_media': social_sentiment['sentiment']
+                }
             )
             
-            # Calculate model accuracy
-            y_pred = model.predict(X_scaled)
-            accuracy = r2_score(y, y_pred)
+            # Cache result
+            await cache_manager.set(cache_key, result.__dict__, ttl=300)  # 5 minutes
             
-            # Get feature importance
-            feature_names = ['revenue', 'ebit_margin', 'growth_rate', 'market_cap', 
-                           'debt_ratio', 'cash_flow', 'roic', 'pe_ratio']
-            importance = dict(zip(feature_names, model.feature_importances_))
+            return result
             
-            return PredictionResult(
-                predicted_value=prediction,
-                confidence_interval=confidence_interval,
-                confidence_level=0.95,
-                model_accuracy=accuracy,
-                features_importance=importance,
-                timestamp=datetime.utcnow()
+        except Exception as e:
+            logger.error(f"Error analyzing sentiment for {symbol}: {e}")
+            return SentimentAnalysis(
+                overall_sentiment=0.0,
+                sentiment_score=0.0,
+                confidence=0.0,
+                sources=[],
+                keywords=[],
+                timestamp=datetime.utcnow(),
+                breakdown={}
+            )
+    
+    async def calculate_risk_metrics(self, portfolio_data: Dict[str, Any], 
+                                   historical_data: pd.DataFrame) -> RiskMetrics:
+        """Calculate comprehensive risk metrics for a portfolio"""
+        try:
+            # Calculate returns
+            returns = historical_data.pct_change().dropna()
+            
+            # Value at Risk calculations
+            var_95 = np.percentile(returns, 5)
+            var_99 = np.percentile(returns, 1)
+            
+            # Expected Shortfall (Conditional VaR)
+            expected_shortfall = returns[returns <= var_95].mean()
+            
+            # Volatility
+            volatility = returns.std() * np.sqrt(252)  # Annualized
+            
+            # Beta (assuming market data available)
+            market_returns = await self._get_market_returns()
+            if market_returns is not None:
+                beta = np.cov(returns, market_returns)[0, 1] / np.var(market_returns)
+            else:
+                beta = 1.0
+            
+            # Sharpe Ratio
+            risk_free_rate = 0.02  # 2% annual risk-free rate
+            excess_returns = returns - risk_free_rate / 252
+            sharpe_ratio = excess_returns.mean() / returns.std() * np.sqrt(252)
+            
+            # Sortino Ratio
+            downside_returns = returns[returns < 0]
+            sortino_ratio = excess_returns.mean() / downside_returns.std() * np.sqrt(252) if len(downside_returns) > 0 else 0
+            
+            # Maximum Drawdown
+            cumulative_returns = (1 + returns).cumprod()
+            running_max = cumulative_returns.expanding().max()
+            drawdown = (cumulative_returns - running_max) / running_max
+            max_drawdown = drawdown.min()
+            
+            # Correlation matrix
+            correlation_matrix = returns.corr().values
+            
+            # Stress test results
+            stress_test_results = await self._run_stress_tests(portfolio_data, historical_data)
+            
+            return RiskMetrics(
+                var_95=var_95,
+                var_99=var_99,
+                expected_shortfall=expected_shortfall,
+                volatility=volatility,
+                beta=beta,
+                sharpe_ratio=sharpe_ratio,
+                sortino_ratio=sortino_ratio,
+                max_drawdown=max_drawdown,
+                correlation_matrix=correlation_matrix,
+                stress_test_results=stress_test_results
             )
             
         except Exception as e:
-            logger.error(f"Error in revenue prediction: {str(e)}")
+            logger.error(f"Error calculating risk metrics: {e}")
             raise
     
-    def assess_risk(self, financial_data: Dict[str, Any]) -> RiskAssessment:
-        """Assess financial risk using machine learning"""
+    async def generate_market_signals(self, symbol: str, 
+                                    indicators: Optional[List[str]] = None) -> List[MarketSignal]:
+        """Generate trading signals based on technical indicators"""
+        if indicators is None:
+            indicators = ['rsi', 'macd', 'bollinger_bands', 'moving_averages']
+        
         try:
-            # Extract risk features
-            risk_features = self._extract_risk_features(financial_data)
+            # Get historical data
+            historical_data = await self._get_historical_data(symbol, period="1y")
+            if historical_data is None or historical_data.empty:
+                return []
             
-            if len(risk_features) < 5:
-                raise ValueError("Insufficient data for risk assessment")
+            signals = []
             
-            # Prepare data
-            X = np.array(risk_features).reshape(-1, 1)
-            scaler = self.scalers['risk_assessment']
-            X_scaled = scaler.fit_transform(X)
+            # RSI Analysis
+            if 'rsi' in indicators:
+                rsi_signals = self._analyze_rsi(historical_data)
+                signals.extend(rsi_signals)
             
-            # Train isolation forest for anomaly detection
-            model = self.models['risk_assessment']
-            model.fit(X_scaled)
+            # MACD Analysis
+            if 'macd' in indicators:
+                macd_signals = self._analyze_macd(historical_data)
+                signals.extend(macd_signals)
             
-            # Calculate risk score
-            risk_scores = model.decision_function(X_scaled)
-            avg_risk_score = np.mean(risk_scores)
+            # Bollinger Bands Analysis
+            if 'bollinger_bands' in indicators:
+                bb_signals = self._analyze_bollinger_bands(historical_data)
+                signals.extend(bb_signals)
             
-            # Determine risk level
-            risk_level = self._determine_risk_level(avg_risk_score)
+            # Moving Averages Analysis
+            if 'moving_averages' in indicators:
+                ma_signals = self._analyze_moving_averages(historical_data)
+                signals.extend(ma_signals)
             
-            # Identify risk factors
-            risk_factors = self._identify_risk_factors(financial_data)
+            # Sentiment-based signals
+            sentiment = await self.analyze_market_sentiment(symbol)
+            if abs(sentiment.overall_sentiment) > 0.3:
+                sentiment_signal = MarketSignal(
+                    symbol=symbol,
+                    signal_type='buy' if sentiment.overall_sentiment > 0 else 'sell',
+                    confidence=sentiment.confidence,
+                    strength=abs(sentiment.overall_sentiment),
+                    timestamp=datetime.utcnow(),
+                    indicators={'sentiment': sentiment.overall_sentiment},
+                    description=f"Sentiment-based signal: {sentiment.overall_sentiment:.2f}"
+                )
+                signals.append(sentiment_signal)
             
-            # Generate recommendations
-            recommendations = self._generate_risk_recommendations(risk_level, risk_factors)
-            
-            # Calculate confidence
-            confidence = self._calculate_risk_confidence(risk_scores)
-            
-            return RiskAssessment(
-                risk_score=avg_risk_score,
-                risk_level=risk_level,
-                risk_factors=risk_factors,
-                recommendations=recommendations,
-                confidence=confidence
-            )
+            return signals
             
         except Exception as e:
-            logger.error(f"Error in risk assessment: {str(e)}")
-            raise
+            logger.error(f"Error generating market signals for {symbol}: {e}")
+            return []
     
-    def analyze_market_trend(self, price_data: List[Dict[str, Any]], 
-                           period: int = 30) -> MarketTrend:
-        """Analyze market trends using machine learning"""
+    async def optimize_portfolio(self, assets: List[str], 
+                               constraints: Dict[str, Any]) -> Dict[str, Any]:
+        """Optimize portfolio allocation using advanced algorithms"""
         try:
-            if len(price_data) < period:
-                raise ValueError(f"Insufficient price data. Need at least {period} data points")
+            # Get historical data for all assets
+            historical_data = {}
+            for asset in assets:
+                data = await self._get_historical_data(asset, period="2y")
+                if data is not None:
+                    historical_data[asset] = data['Close']
             
-            # Extract trend features
-            trend_features = self._extract_trend_features(price_data, period)
+            if len(historical_data) < 2:
+                raise ValueError("Insufficient data for portfolio optimization")
             
-            # Prepare training data
-            X, y = self._prepare_trend_training_data(trend_features)
-            
-            if len(X) < 10:
-                raise ValueError("Insufficient data for trend analysis")
-            
-            # Train model
-            model = self.models['market_trend']
-            scaler = self.scalers['market_trend']
-            
-            X_scaled = scaler.fit_transform(X)
-            model.fit(X_scaled, y)
-            
-            # Make prediction
-            latest_features = trend_features[-1]
-            latest_scaled = scaler.transform([latest_features])
-            trend_prediction = model.predict(latest_scaled)[0]
-            
-            # Determine trend direction and strength
-            trend_direction = self._determine_trend_direction(trend_prediction)
-            trend_strength = abs(trend_prediction)
-            
-            # Calculate support and resistance levels
-            support_level, resistance_level = self._calculate_support_resistance(price_data)
-            
-            # Calculate trend duration
-            trend_duration = self._calculate_trend_duration(price_data, trend_direction)
-            
-            # Calculate confidence
-            confidence = self._calculate_trend_confidence(model, X_scaled, y)
-            
-            return MarketTrend(
-                trend_direction=trend_direction,
-                trend_strength=trend_strength,
-                trend_duration=trend_duration,
-                support_level=support_level,
-                resistance_level=resistance_level,
-                confidence=confidence
-            )
-            
-        except Exception as e:
-            logger.error(f"Error in market trend analysis: {str(e)}")
-            raise
-    
-    def optimize_portfolio(self, assets: List[Dict[str, Any]], 
-                          target_return: float = 0.10,
-                          risk_tolerance: float = 0.15) -> Dict[str, Any]:
-        """Optimize portfolio allocation using modern portfolio theory"""
-        try:
-            if len(assets) < 2:
-                raise ValueError("Need at least 2 assets for portfolio optimization")
-            
-            # Extract asset data
-            asset_data = self._extract_portfolio_data(assets)
+            # Create returns dataframe
+            returns_df = pd.DataFrame(historical_data).pct_change().dropna()
             
             # Calculate expected returns and covariance matrix
-            expected_returns = self._calculate_expected_returns(asset_data)
-            covariance_matrix = self._calculate_covariance_matrix(asset_data)
+            expected_returns = returns_df.mean() * 252  # Annualized
+            covariance_matrix = returns_df.cov() * 252  # Annualized
             
-            # Optimize portfolio weights
-            optimal_weights = self._optimize_portfolio_weights(
-                expected_returns, covariance_matrix, target_return, risk_tolerance
+            # Run portfolio optimization
+            optimal_weights = self.portfolio_optimizer.optimize(
+                expected_returns=expected_returns,
+                covariance_matrix=covariance_matrix,
+                constraints=constraints
             )
             
             # Calculate portfolio metrics
-            portfolio_return = np.sum(expected_returns * optimal_weights)
-            portfolio_risk = np.sqrt(
-                optimal_weights.T @ covariance_matrix @ optimal_weights
-            )
-            sharpe_ratio = portfolio_return / portfolio_risk if portfolio_risk > 0 else 0
+            portfolio_return = (optimal_weights * expected_returns).sum()
+            portfolio_volatility = np.sqrt(optimal_weights.T @ covariance_matrix @ optimal_weights)
+            sharpe_ratio = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
             
             return {
-                'weights': dict(zip([asset['symbol'] for asset in assets], optimal_weights)),
+                'weights': dict(zip(assets, optimal_weights)),
                 'expected_return': portfolio_return,
-                'expected_risk': portfolio_risk,
+                'volatility': portfolio_volatility,
                 'sharpe_ratio': sharpe_ratio,
-                'diversification_ratio': self._calculate_diversification_ratio(
-                    optimal_weights, covariance_matrix
-                ),
-                'timestamp': datetime.utcnow().isoformat()
+                'assets': assets,
+                'optimization_method': 'efficient_frontier'
             }
             
         except Exception as e:
-            logger.error(f"Error in portfolio optimization: {str(e)}")
+            logger.error(f"Error optimizing portfolio: {e}")
             raise
     
-    def detect_anomalies(self, financial_data: List[Dict[str, Any]], 
-                        metric: str = 'revenue') -> List[Dict[str, Any]]:
-        """Detect anomalies in financial data"""
+    async def predict_revenue(self, company_data: Dict[str, Any], 
+                            forecast_periods: int = 12) -> Dict[str, Any]:
+        """Predict company revenue using ML models"""
         try:
-            # Extract metric data
-            metric_data = [data.get(metric, 0) for data in financial_data]
+            # Prepare features
+            features = self._prepare_revenue_features(company_data)
             
-            if len(metric_data) < 10:
-                raise ValueError("Insufficient data for anomaly detection")
+            # Get prediction from model
+            prediction = self.revenue_predictor.predict(
+                features=features,
+                periods=forecast_periods
+            )
             
-            # Prepare data for anomaly detection
-            X = np.array(metric_data).reshape(-1, 1)
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
+            # Calculate confidence intervals
+            confidence_intervals = self._calculate_confidence_intervals(prediction)
             
-            # Train isolation forest
-            anomaly_model = IsolationForest(contamination=0.1, random_state=42)
-            anomaly_model.fit(X_scaled)
-            
-            # Detect anomalies
-            anomaly_scores = anomaly_model.decision_function(X_scaled)
-            anomaly_predictions = anomaly_model.predict(X_scaled)
-            
-            # Identify anomalies
-            anomalies = []
-            for i, (score, prediction) in enumerate(zip(anomaly_scores, anomaly_predictions)):
-                if prediction == -1:  # Anomaly detected
-                    anomalies.append({
-                        'index': i,
-                        'value': metric_data[i],
-                        'score': score,
-                        'severity': 'high' if score < -0.5 else 'medium',
-                        'timestamp': financial_data[i].get('timestamp', ''),
-                        'metric': metric
-                    })
-            
-            return anomalies
+            return {
+                'predictions': prediction.tolist(),
+                'confidence_intervals': confidence_intervals,
+                'forecast_periods': forecast_periods,
+                'model_confidence': 0.85,  # Placeholder
+                'last_updated': datetime.utcnow().isoformat()
+            }
             
         except Exception as e:
-            logger.error(f"Error in anomaly detection: {str(e)}")
+            logger.error(f"Error predicting revenue: {e}")
             raise
     
-    def _extract_revenue_features(self, financial_data: Dict[str, Any]) -> List[List[float]]:
-        """Extract features for revenue prediction"""
-        features = []
-        
-        # Extract historical data
-        revenue_history = financial_data.get('revenue_history', [])
-        ebit_history = financial_data.get('ebit_history', [])
-        
-        for i in range(len(revenue_history) - 1):
-            feature_vector = [
-                revenue_history[i],
-                ebit_history[i] / revenue_history[i] if revenue_history[i] > 0 else 0,
-                (revenue_history[i+1] - revenue_history[i]) / revenue_history[i] if revenue_history[i] > 0 else 0,
-                financial_data.get('market_cap', 0),
-                financial_data.get('total_debt', 0) / financial_data.get('total_assets', 1),
-                financial_data.get('operating_cash_flow', 0),
-                financial_data.get('roic', 0),
-                financial_data.get('pe_ratio', 0)
-            ]
-            features.append(feature_vector)
-        
-        return features
+    async def run_performance_analytics(self, portfolio_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Run comprehensive performance analytics"""
+        try:
+            # Calculate various performance metrics
+            metrics = {}
+            
+            # Return metrics
+            metrics['total_return'] = self._calculate_total_return(portfolio_data)
+            metrics['annualized_return'] = self._calculate_annualized_return(portfolio_data)
+            metrics['volatility'] = self._calculate_volatility(portfolio_data)
+            
+            # Risk-adjusted metrics
+            metrics['sharpe_ratio'] = self._calculate_sharpe_ratio(portfolio_data)
+            metrics['sortino_ratio'] = self._calculate_sortino_ratio(portfolio_data)
+            metrics['calmar_ratio'] = self._calculate_calmar_ratio(portfolio_data)
+            
+            # Drawdown metrics
+            metrics['max_drawdown'] = self._calculate_max_drawdown(portfolio_data)
+            metrics['avg_drawdown'] = self._calculate_avg_drawdown(portfolio_data)
+            
+            # Benchmark comparison
+            benchmark_data = await self._get_benchmark_data(portfolio_data.get('benchmark', 'SPY'))
+            if benchmark_data:
+                metrics['benchmark_comparison'] = self._compare_to_benchmark(portfolio_data, benchmark_data)
+            
+            # Attribution analysis
+            metrics['attribution'] = await self._run_attribution_analysis(portfolio_data)
+            
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"Error running performance analytics: {e}")
+            raise
     
-    def _extract_risk_features(self, financial_data: Dict[str, Any]) -> List[float]:
-        """Extract features for risk assessment"""
+    async def create_real_time_dashboard(self, symbols: List[str]) -> Dict[str, Any]:
+        """Create real-time dashboard data for multiple symbols"""
+        try:
+            dashboard_data = {
+                'timestamp': datetime.utcnow().isoformat(),
+                'symbols': {},
+                'market_overview': {},
+                'alerts': []
+            }
+            
+            # Process symbols in parallel
+            tasks = []
+            for symbol in symbols:
+                tasks.append(self._process_symbol_data(symbol))
+            
+            symbol_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for i, symbol in enumerate(symbols):
+                if isinstance(symbol_results[i], Exception):
+                    logger.error(f"Error processing {symbol}: {symbol_results[i]}")
+                    continue
+                
+                dashboard_data['symbols'][symbol] = symbol_results[i]
+            
+            # Market overview
+            dashboard_data['market_overview'] = await self._get_market_overview()
+            
+            # Generate alerts
+            dashboard_data['alerts'] = await self._generate_alerts(symbols)
+            
+            return dashboard_data
+            
+        except Exception as e:
+            logger.error(f"Error creating real-time dashboard: {e}")
+            raise
+    
+    # Helper methods
+    async def _fetch_news_data(self, symbol: str) -> List[Dict[str, Any]]:
+        """Fetch news data for a symbol"""
+        # Placeholder implementation - would integrate with news APIs
         return [
-            financial_data.get('debt_to_equity', 0),
-            financial_data.get('current_ratio', 0),
-            financial_data.get('quick_ratio', 0),
-            financial_data.get('interest_coverage', 0),
-            financial_data.get('cash_flow_coverage', 0),
-            financial_data.get('asset_turnover', 0),
-            financial_data.get('inventory_turnover', 0),
-            financial_data.get('days_sales_outstanding', 0)
+            {'title': f'News about {symbol}', 'content': 'Sample content', 'source': 'Reuters'},
+            {'title': f'Analysis: {symbol} performance', 'content': 'Sample analysis', 'source': 'Bloomberg'}
         ]
     
-    def _extract_trend_features(self, price_data: List[Dict[str, Any]], period: int) -> List[List[float]]:
-        """Extract features for trend analysis"""
+    async def _fetch_social_data(self, symbol: str) -> List[Dict[str, Any]]:
+        """Fetch social media data for a symbol"""
+        # Placeholder implementation - would integrate with social media APIs
+        return [
+            {'text': f'$#{symbol} looking bullish today!', 'source': 'twitter'},
+            {'text': f'#{symbol} earnings beat expectations', 'source': 'reddit'}
+        ]
+    
+    def _extract_keywords(self, data: List[Dict[str, Any]]) -> List[str]:
+        """Extract keywords from text data"""
+        # Simple keyword extraction - could be enhanced with NLP
+        keywords = []
+        for item in data:
+            text = item.get('title', '') + ' ' + item.get('content', '') + ' ' + item.get('text', '')
+            words = text.lower().split()
+            keywords.extend([word for word in words if len(word) > 3])
+        
+        # Return most common keywords
+        from collections import Counter
+        return [word for word, count in Counter(keywords).most_common(10)]
+    
+    async def _get_historical_data(self, symbol: str, period: str = "1y") -> Optional[pd.DataFrame]:
+        """Get historical price data"""
+        try:
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(period=period)
+            return data
+        except Exception as e:
+            logger.error(f"Error fetching historical data for {symbol}: {e}")
+            return None
+    
+    async def _get_market_returns(self) -> Optional[pd.Series]:
+        """Get market returns for beta calculation"""
+        try:
+            market_data = await self._get_historical_data("SPY", period="1y")
+            if market_data is not None:
+                return market_data['Close'].pct_change().dropna()
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching market returns: {e}")
+            return None
+    
+    async def _run_stress_tests(self, portfolio_data: Dict[str, Any], 
+                              historical_data: pd.DataFrame) -> Dict[str, float]:
+        """Run stress tests on portfolio"""
+        stress_scenarios = {
+            'market_crash': -0.20,
+            'recession': -0.15,
+            'volatility_spike': 0.50,
+            'interest_rate_hike': 0.02
+        }
+        
+        results = {}
+        for scenario, shock in stress_scenarios.items():
+            # Apply shock to portfolio
+            stressed_returns = historical_data.pct_change().dropna() * (1 + shock)
+            results[scenario] = stressed_returns.mean()
+        
+        return results
+    
+    def _analyze_rsi(self, data: pd.DataFrame) -> List[MarketSignal]:
+        """Analyze RSI indicator"""
+        signals = []
+        if len(data) < 14:
+            return signals
+        
+        # Calculate RSI
+        delta = data['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        current_rsi = rsi.iloc[-1]
+        
+        if current_rsi < 30:
+            signals.append(MarketSignal(
+                symbol=data.name if hasattr(data, 'name') else 'UNKNOWN',
+                signal_type='buy',
+                confidence=0.7,
+                strength=0.8,
+                timestamp=datetime.utcnow(),
+                indicators={'rsi': current_rsi},
+                description=f"RSI oversold: {current_rsi:.2f}"
+            ))
+        elif current_rsi > 70:
+            signals.append(MarketSignal(
+                symbol=data.name if hasattr(data, 'name') else 'UNKNOWN',
+                signal_type='sell',
+                confidence=0.7,
+                strength=0.8,
+                timestamp=datetime.utcnow(),
+                indicators={'rsi': current_rsi},
+                description=f"RSI overbought: {current_rsi:.2f}"
+            ))
+        
+        return signals
+    
+    def _analyze_macd(self, data: pd.DataFrame) -> List[MarketSignal]:
+        """Analyze MACD indicator"""
+        signals = []
+        if len(data) < 26:
+            return signals
+        
+        # Calculate MACD
+        exp1 = data['Close'].ewm(span=12).mean()
+        exp2 = data['Close'].ewm(span=26).mean()
+        macd = exp1 - exp2
+        signal = macd.ewm(span=9).mean()
+        histogram = macd - signal
+        
+        current_macd = macd.iloc[-1]
+        current_signal = signal.iloc[-1]
+        current_histogram = histogram.iloc[-1]
+        prev_histogram = histogram.iloc[-2] if len(histogram) > 1 else 0
+        
+        # MACD crossover signals
+        if current_macd > current_signal and prev_histogram < 0 and current_histogram > 0:
+            signals.append(MarketSignal(
+                symbol=data.name if hasattr(data, 'name') else 'UNKNOWN',
+                signal_type='buy',
+                confidence=0.8,
+                strength=0.9,
+                timestamp=datetime.utcnow(),
+                indicators={'macd': current_macd, 'signal': current_signal},
+                description="MACD bullish crossover"
+            ))
+        elif current_macd < current_signal and prev_histogram > 0 and current_histogram < 0:
+            signals.append(MarketSignal(
+                symbol=data.name if hasattr(data, 'name') else 'UNKNOWN',
+                signal_type='sell',
+                confidence=0.8,
+                strength=0.9,
+                timestamp=datetime.utcnow(),
+                indicators={'macd': current_macd, 'signal': current_signal},
+                description="MACD bearish crossover"
+            ))
+        
+        return signals
+    
+    def _analyze_bollinger_bands(self, data: pd.DataFrame) -> List[MarketSignal]:
+        """Analyze Bollinger Bands"""
+        signals = []
+        if len(data) < 20:
+            return signals
+        
+        # Calculate Bollinger Bands
+        sma = data['Close'].rolling(window=20).mean()
+        std = data['Close'].rolling(window=20).std()
+        upper_band = sma + (std * 2)
+        lower_band = sma - (std * 2)
+        
+        current_price = data['Close'].iloc[-1]
+        current_upper = upper_band.iloc[-1]
+        current_lower = lower_band.iloc[-1]
+        
+        if current_price <= current_lower:
+            signals.append(MarketSignal(
+                symbol=data.name if hasattr(data, 'name') else 'UNKNOWN',
+                signal_type='buy',
+                confidence=0.6,
+                strength=0.7,
+                timestamp=datetime.utcnow(),
+                indicators={'price': current_price, 'lower_band': current_lower},
+                description="Price at lower Bollinger Band"
+            ))
+        elif current_price >= current_upper:
+            signals.append(MarketSignal(
+                symbol=data.name if hasattr(data, 'name') else 'UNKNOWN',
+                signal_type='sell',
+                confidence=0.6,
+                strength=0.7,
+                timestamp=datetime.utcnow(),
+                indicators={'price': current_price, 'upper_band': current_upper},
+                description="Price at upper Bollinger Band"
+            ))
+        
+        return signals
+    
+    def _analyze_moving_averages(self, data: pd.DataFrame) -> List[MarketSignal]:
+        """Analyze moving averages"""
+        signals = []
+        if len(data) < 50:
+            return signals
+        
+        # Calculate moving averages
+        sma_20 = data['Close'].rolling(window=20).mean()
+        sma_50 = data['Close'].rolling(window=50).mean()
+        
+        current_sma_20 = sma_20.iloc[-1]
+        current_sma_50 = sma_50.iloc[-1]
+        prev_sma_20 = sma_20.iloc[-2] if len(sma_20) > 1 else current_sma_20
+        prev_sma_50 = sma_50.iloc[-2] if len(sma_50) > 1 else current_sma_50
+        
+        # Golden cross (20-day crosses above 50-day)
+        if current_sma_20 > current_sma_50 and prev_sma_20 <= prev_sma_50:
+            signals.append(MarketSignal(
+                symbol=data.name if hasattr(data, 'name') else 'UNKNOWN',
+                signal_type='buy',
+                confidence=0.7,
+                strength=0.8,
+                timestamp=datetime.utcnow(),
+                indicators={'sma_20': current_sma_20, 'sma_50': current_sma_50},
+                description="Golden cross detected"
+            ))
+        # Death cross (20-day crosses below 50-day)
+        elif current_sma_20 < current_sma_50 and prev_sma_20 >= prev_sma_50:
+            signals.append(MarketSignal(
+                symbol=data.name if hasattr(data, 'name') else 'UNKNOWN',
+                signal_type='sell',
+                confidence=0.7,
+                strength=0.8,
+                timestamp=datetime.utcnow(),
+                indicators={'sma_20': current_sma_20, 'sma_50': current_sma_50},
+                description="Death cross detected"
+            ))
+        
+        return signals
+    
+    def _prepare_revenue_features(self, company_data: Dict[str, Any]) -> np.ndarray:
+        """Prepare features for revenue prediction"""
+        # Extract relevant features from company data
         features = []
         
-        for i in range(period, len(price_data)):
-            prices = [p['close'] for p in price_data[i-period:i]]
-            volumes = [p.get('volume', 0) for p in price_data[i-period:i]]
-            
-            feature_vector = [
-                np.mean(prices),
-                np.std(prices),
-                (prices[-1] - prices[0]) / prices[0] if prices[0] > 0 else 0,
-                np.mean(volumes),
-                np.std(volumes),
-                len([p for p in prices if p > np.mean(prices)]) / len(prices)
-            ]
-            features.append(feature_vector)
+        # Financial ratios
+        features.extend([
+            company_data.get('revenue_growth', 0),
+            company_data.get('profit_margin', 0),
+            company_data.get('debt_to_equity', 0),
+            company_data.get('current_ratio', 0),
+            company_data.get('roe', 0),
+            company_data.get('roa', 0)
+        ])
         
-        return features
+        # Market indicators
+        features.extend([
+            company_data.get('pe_ratio', 0),
+            company_data.get('pb_ratio', 0),
+            company_data.get('market_cap', 0),
+            company_data.get('beta', 1.0)
+        ])
+        
+        return np.array(features).reshape(1, -1)
     
-    def _prepare_revenue_training_data(self, features: List[List[float]]) -> Tuple[np.ndarray, np.ndarray]:
-        """Prepare training data for revenue prediction"""
-        X = np.array(features[:-1])  # Features
-        y = np.array([f[2] for f in features[1:]])  # Growth rate as target
-        return X, y
-    
-    def _prepare_trend_training_data(self, features: List[List[float]]) -> Tuple[np.ndarray, np.ndarray]:
-        """Prepare training data for trend analysis"""
-        X = np.array(features[:-1])
-        y = np.array([f[2] for f in features[1:]])  # Price change as target
-        return X, y
-    
-    def _calculate_confidence_interval(self, model, X, y, prediction) -> Tuple[float, float]:
-        """Calculate confidence interval for prediction"""
+    def _calculate_confidence_intervals(self, predictions: np.ndarray, 
+                                      confidence_level: float = 0.95) -> Dict[str, List[float]]:
+        """Calculate confidence intervals for predictions"""
         # Simple confidence interval calculation
-        y_pred = model.predict(X)
-        mse = mean_squared_error(y, y_pred)
-        std_error = np.sqrt(mse)
+        std_error = predictions.std() * 0.1  # Placeholder
+        z_score = stats.norm.ppf((1 + confidence_level) / 2)
+        margin_of_error = z_score * std_error
         
-        confidence_interval = (
-            prediction - 1.96 * std_error,
-            prediction + 1.96 * std_error
-        )
-        
-        return confidence_interval
-    
-    def _determine_risk_level(self, risk_score: float) -> str:
-        """Determine risk level based on risk score"""
-        if risk_score > 0.5:
-            return 'low'
-        elif risk_score > 0:
-            return 'medium'
-        elif risk_score > -0.5:
-            return 'high'
-        else:
-            return 'critical'
-    
-    def _identify_risk_factors(self, financial_data: Dict[str, Any]) -> List[str]:
-        """Identify specific risk factors"""
-        risk_factors = []
-        
-        if financial_data.get('debt_to_equity', 0) > 2:
-            risk_factors.append('High debt-to-equity ratio')
-        
-        if financial_data.get('current_ratio', 0) < 1:
-            risk_factors.append('Low current ratio')
-        
-        if financial_data.get('interest_coverage', 0) < 2:
-            risk_factors.append('Low interest coverage')
-        
-        if financial_data.get('cash_flow_coverage', 0) < 1.5:
-            risk_factors.append('Low cash flow coverage')
-        
-        return risk_factors
-    
-    def _generate_risk_recommendations(self, risk_level: str, risk_factors: List[str]) -> List[str]:
-        """Generate risk mitigation recommendations"""
-        recommendations = []
-        
-        if risk_level in ['high', 'critical']:
-            recommendations.append('Consider reducing debt levels')
-            recommendations.append('Improve cash flow management')
-            recommendations.append('Strengthen working capital position')
-        
-        if 'High debt-to-equity ratio' in risk_factors:
-            recommendations.append('Focus on debt reduction strategies')
-        
-        if 'Low current ratio' in risk_factors:
-            recommendations.append('Improve short-term liquidity')
-        
-        return recommendations
-    
-    def _calculate_risk_confidence(self, risk_scores: np.ndarray) -> float:
-        """Calculate confidence in risk assessment"""
-        return 1 - np.std(risk_scores)  # Higher consistency = higher confidence
-    
-    def _determine_trend_direction(self, prediction: float) -> str:
-        """Determine trend direction from prediction"""
-        if prediction > 0.02:
-            return 'bullish'
-        elif prediction < -0.02:
-            return 'bearish'
-        else:
-            return 'neutral'
-    
-    def _calculate_support_resistance(self, price_data: List[Dict[str, Any]]) -> Tuple[float, float]:
-        """Calculate support and resistance levels"""
-        prices = [p['close'] for p in price_data]
-        
-        # Simple support/resistance calculation
-        support_level = np.percentile(prices, 25)
-        resistance_level = np.percentile(prices, 75)
-        
-        return support_level, resistance_level
-    
-    def _calculate_trend_duration(self, price_data: List[Dict[str, Any]], direction: str) -> int:
-        """Calculate trend duration in days"""
-        # Simple trend duration calculation
-        return len(price_data) // 4  # Approximate duration
-    
-    def _calculate_trend_confidence(self, model, X, y) -> float:
-        """Calculate confidence in trend analysis"""
-        y_pred = model.predict(X)
-        return r2_score(y, y_pred)
-    
-    def _extract_portfolio_data(self, assets: List[Dict[str, Any]]) -> Dict[str, List[float]]:
-        """Extract portfolio data for optimization"""
-        portfolio_data = {}
-        
-        for asset in assets:
-            symbol = asset['symbol']
-            returns = asset.get('returns', [])
-            if returns:
-                portfolio_data[symbol] = returns
-        
-        return portfolio_data
-    
-    def _calculate_expected_returns(self, asset_data: Dict[str, List[float]]) -> np.ndarray:
-        """Calculate expected returns for assets"""
-        expected_returns = []
-        
-        for symbol, returns in asset_data.items():
-            if returns:
-                expected_return = np.mean(returns)
-                expected_returns.append(expected_return)
-            else:
-                expected_returns.append(0.05)  # Default return
-        
-        return np.array(expected_returns)
-    
-    def _calculate_covariance_matrix(self, asset_data: Dict[str, List[float]]) -> np.ndarray:
-        """Calculate covariance matrix for assets"""
-        # Align return series
-        min_length = min(len(returns) for returns in asset_data.values()) if asset_data else 0
-        
-        if min_length < 2:
-            # Return identity matrix if insufficient data
-            n_assets = len(asset_data)
-            return np.eye(n_assets) * 0.1
-        
-        aligned_returns = []
-        for symbol, returns in asset_data.items():
-            aligned_returns.append(returns[-min_length:])
-        
-        returns_matrix = np.array(aligned_returns).T
-        return np.cov(returns_matrix, rowvar=False)
-    
-    def _optimize_portfolio_weights(self, expected_returns: np.ndarray, 
-                                  covariance_matrix: np.ndarray,
-                                  target_return: float, risk_tolerance: float) -> np.ndarray:
-        """Optimize portfolio weights using modern portfolio theory"""
-        n_assets = len(expected_returns)
-        
-        # Simple optimization: equal weight with target return constraint
-        weights = np.ones(n_assets) / n_assets
-        
-        # Adjust weights to meet target return
-        current_return = np.sum(expected_returns * weights)
-        if current_return < target_return:
-            # Increase weights for higher return assets
-            high_return_indices = np.argsort(expected_returns)[-n_assets//2:]
-            weights[high_return_indices] *= 1.2
-            weights /= np.sum(weights)  # Normalize
-        
-        return weights
-    
-    def _calculate_diversification_ratio(self, weights: np.ndarray, 
-                                       covariance_matrix: np.ndarray) -> float:
-        """Calculate portfolio diversification ratio"""
-        portfolio_variance = weights.T @ covariance_matrix @ weights
-        weighted_asset_variance = np.sum(weights * np.diag(covariance_matrix))
-        
-        if weighted_asset_variance > 0:
-            return portfolio_variance / weighted_asset_variance
-        else:
-            return 1.0
-    
-    def save_model(self, model_name: str, filepath: str):
-        """Save trained model to file"""
-        if model_name in self.models:
-            joblib.dump(self.models[model_name], filepath)
-            logger.info(f"Model {model_name} saved to {filepath}")
-    
-    def load_model(self, model_name: str, filepath: str):
-        """Load trained model from file"""
-        try:
-            self.models[model_name] = joblib.load(filepath)
-            logger.info(f"Model {model_name} loaded from {filepath}")
-        except Exception as e:
-            logger.error(f"Error loading model {model_name}: {str(e)}")
-    
-    def get_model_statistics(self) -> Dict[str, Any]:
-        """Get analytics engine statistics"""
         return {
-            'total_models': len(self.models),
-            'model_names': list(self.models.keys()),
-            'cache_size': len(self.feature_importance_cache),
-            'timestamp': datetime.utcnow().isoformat()
+            'lower': (predictions - margin_of_error).tolist(),
+            'upper': (predictions + margin_of_error).tolist()
+        }
+    
+    async def _process_symbol_data(self, symbol: str) -> Dict[str, Any]:
+        """Process data for a single symbol"""
+        try:
+            # Get current price and basic data
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
+            
+            # Get recent price data
+            hist = ticker.history(period="5d")
+            current_price = hist['Close'].iloc[-1] if not hist.empty else 0
+            
+            # Get sentiment
+            sentiment = await self.analyze_market_sentiment(symbol)
+            
+            # Get signals
+            signals = await self.generate_market_signals(symbol)
+            
+            return {
+                'symbol': symbol,
+                'current_price': current_price,
+                'change': hist['Close'].iloc[-1] - hist['Close'].iloc[-2] if len(hist) > 1 else 0,
+                'change_percent': ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2] - 1) * 100) if len(hist) > 1 else 0,
+                'volume': hist['Volume'].iloc[-1] if not hist.empty else 0,
+                'market_cap': info.get('marketCap', 0),
+                'pe_ratio': info.get('trailingPE', 0),
+                'sentiment': sentiment.overall_sentiment,
+                'signals': [signal.__dict__ for signal in signals],
+                'last_updated': datetime.utcnow().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error processing symbol {symbol}: {e}")
+            return {'symbol': symbol, 'error': str(e)}
+    
+    async def _get_market_overview(self) -> Dict[str, Any]:
+        """Get market overview data"""
+        try:
+            # Get major indices
+            indices = ['^GSPC', '^DJI', '^IXIC', '^VIX']
+            overview = {}
+            
+            for index in indices:
+                ticker = yf.Ticker(index)
+                hist = ticker.history(period="2d")
+                if not hist.empty:
+                    current = hist['Close'].iloc[-1]
+                    previous = hist['Close'].iloc[-2] if len(hist) > 1 else current
+                    change = current - previous
+                    change_percent = ((current / previous - 1) * 100) if previous != 0 else 0
+                    
+                    overview[index] = {
+                        'current': current,
+                        'change': change,
+                        'change_percent': change_percent
+                    }
+            
+            return overview
+        except Exception as e:
+            logger.error(f"Error getting market overview: {e}")
+            return {}
+    
+    async def _generate_alerts(self, symbols: List[str]) -> List[Dict[str, Any]]:
+        """Generate alerts for symbols"""
+        alerts = []
+        
+        for symbol in symbols:
+            try:
+                # Check for significant price movements
+                hist = yf.Ticker(symbol).history(period="2d")
+                if len(hist) > 1:
+                    change_percent = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2] - 1) * 100)
+                    
+                    if abs(change_percent) > 5:  # 5% threshold
+                        alerts.append({
+                            'symbol': symbol,
+                            'type': 'price_alert',
+                            'message': f'{symbol} moved {change_percent:.2f}%',
+                            'severity': 'high' if abs(change_percent) > 10 else 'medium',
+                            'timestamp': datetime.utcnow().isoformat()
+                        })
+                
+                # Check for volume spikes
+                if len(hist) > 5:
+                    avg_volume = hist['Volume'].iloc[:-1].mean()
+                    current_volume = hist['Volume'].iloc[-1]
+                    
+                    if current_volume > avg_volume * 2:  # 2x average volume
+                        alerts.append({
+                            'symbol': symbol,
+                            'type': 'volume_alert',
+                            'message': f'{symbol} volume spike detected',
+                            'severity': 'medium',
+                            'timestamp': datetime.utcnow().isoformat()
+                        })
+            
+            except Exception as e:
+                logger.error(f"Error generating alerts for {symbol}: {e}")
+        
+        return alerts
+    
+    # Performance calculation methods
+    def _calculate_total_return(self, portfolio_data: Dict[str, Any]) -> float:
+        """Calculate total return"""
+        # Placeholder implementation
+        return 0.15  # 15% example return
+    
+    def _calculate_annualized_return(self, portfolio_data: Dict[str, Any]) -> float:
+        """Calculate annualized return"""
+        # Placeholder implementation
+        return 0.12  # 12% example annualized return
+    
+    def _calculate_volatility(self, portfolio_data: Dict[str, Any]) -> float:
+        """Calculate volatility"""
+        # Placeholder implementation
+        return 0.18  # 18% example volatility
+    
+    def _calculate_sharpe_ratio(self, portfolio_data: Dict[str, Any]) -> float:
+        """Calculate Sharpe ratio"""
+        # Placeholder implementation
+        return 0.67  # Example Sharpe ratio
+    
+    def _calculate_sortino_ratio(self, portfolio_data: Dict[str, Any]) -> float:
+        """Calculate Sortino ratio"""
+        # Placeholder implementation
+        return 0.85  # Example Sortino ratio
+    
+    def _calculate_calmar_ratio(self, portfolio_data: Dict[str, Any]) -> float:
+        """Calculate Calmar ratio"""
+        # Placeholder implementation
+        return 0.45  # Example Calmar ratio
+    
+    def _calculate_max_drawdown(self, portfolio_data: Dict[str, Any]) -> float:
+        """Calculate maximum drawdown"""
+        # Placeholder implementation
+        return -0.08  # -8% example max drawdown
+    
+    def _calculate_avg_drawdown(self, portfolio_data: Dict[str, Any]) -> float:
+        """Calculate average drawdown"""
+        # Placeholder implementation
+        return -0.03  # -3% example average drawdown
+    
+    async def _get_benchmark_data(self, benchmark: str) -> Optional[Dict[str, Any]]:
+        """Get benchmark data for comparison"""
+        # Placeholder implementation
+        return {
+            'return': 0.10,
+            'volatility': 0.15,
+            'sharpe_ratio': 0.67
+        }
+    
+    def _compare_to_benchmark(self, portfolio_data: Dict[str, Any], 
+                            benchmark_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Compare portfolio to benchmark"""
+        # Placeholder implementation
+        return {
+            'excess_return': 0.02,
+            'information_ratio': 0.25,
+            'tracking_error': 0.05
+        }
+    
+    async def _run_attribution_analysis(self, portfolio_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Run attribution analysis"""
+        # Placeholder implementation
+        return {
+            'asset_allocation': 0.03,
+            'stock_selection': 0.01,
+            'interaction': 0.01,
+            'total_active_return': 0.05
         }
 
-    def predict(self, model_name: str, data: Dict[str, Any]) -> Any:
-        """Unified prediction method for all models."""
-        if model_name not in self.models:
-            raise ValueError(f"Model '{model_name}' not found.")
 
-        model = self.models[model_name]
-        
-        # Each model should have a 'predict' method that takes the data dict
-        if hasattr(model, 'predict') and callable(getattr(model, 'predict')):
-            return model.predict(data)
-        else:
-            # Fallback for sklearn-like models that don't have a custom predict method
-            # This part may need customization based on the model's expected input format
-            if 'features' in data:
-                features = np.array(data['features']).reshape(1, -1)
-                return model.predict(features)
-            else:
-                raise NotImplementedError(f"Prediction for model '{model_name}' is not implemented in the unified engine.")
+# Global analytics engine instance
+analytics_engine = AdvancedAnalyticsEngine()

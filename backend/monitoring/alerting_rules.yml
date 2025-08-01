@@ -1,0 +1,151 @@
+groups:
+  - name: valor_ivx_alerts
+    rules:
+      # High Error Rate Alert
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} errors per second for the last 5 minutes"
+
+      # API Response Time Alert
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API response time"
+          description: "95th percentile response time is {{ $value }} seconds"
+
+      # Database Connection Alert
+      - alert: DatabaseConnectionIssues
+        expr: pg_stat_database_numbackends > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database connections"
+          description: "Database has {{ $value }} active connections"
+
+      # Redis Memory Usage Alert
+      - alert: RedisMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Redis memory usage"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}"
+
+      # Service Down Alert
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service is down"
+          description: "Service {{ $labels.job }} is down"
+
+      # High CPU Usage Alert
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%"
+
+      # High Memory Usage Alert
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}%"
+
+      # Disk Space Alert
+      - alert: DiskSpaceUsage
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk usage"
+          description: "Disk usage is {{ $value }}%"
+
+      # Financial Data API Rate Limit Alert
+      - alert: FinancialDataRateLimit
+        expr: rate(financial_data_api_calls_total[5m]) > 50
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High financial data API usage"
+          description: "Financial data API calls per second: {{ $value }}"
+
+      # Circuit Breaker Open Alert
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state == 2
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker is open"
+          description: "Circuit breaker for {{ $labels.service }} is open"
+
+      # Authentication Failures Alert
+      - alert: HighAuthFailures
+        expr: rate(auth_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High authentication failures"
+          description: "Authentication failures per second: {{ $value }}"
+
+      # WebSocket Connection Issues
+      - alert: WebSocketConnectionIssues
+        expr: websocket_connections_active < 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "WebSocket connection issues"
+          description: "No active WebSocket connections"
+
+      # ML Model Performance Alert
+      - alert: MLModelPerformance
+        expr: ml_model_prediction_duration_seconds > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML model performance degradation"
+          description: "ML model {{ $labels.model }} is taking {{ $value }} seconds to respond"
+
+      # Business Metrics Alerts
+      - alert: LowUserActivity
+        expr: rate(user_sessions_total[1h]) < 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low user activity"
+          description: "User activity is below normal levels"
+
+      - alert: HighAPILatency
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical API latency"
+          description: "99th percentile API response time is {{ $value }} seconds" 
