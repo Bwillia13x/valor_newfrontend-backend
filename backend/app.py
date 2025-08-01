@@ -10,6 +10,7 @@ import os
 import json
 import uuid
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
@@ -33,6 +34,16 @@ from financial_data import financial_api, parse_financial_data, calculate_dcf_in
 
 # Import WebSocket manager
 from websocket_manager import websocket_manager
+
+# Import monitoring system
+try:
+    from monitoring import MonitoringManager, init_monitoring_routes
+    import redis
+    redis_client = redis.Redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379'))
+    monitoring_enabled = True
+except ImportError:
+    monitoring_enabled = False
+    redis_client = None
 
 # Configuration
 class Config:
@@ -98,6 +109,7 @@ jwt = JWTManager(app)
 # Initialize WebSocket manager with app
 websocket_manager.init_app(app)
 
+<<<<<<< HEAD
 # Swagger (OpenAPI) setup (feature-flag via ENABLE_SWAGGER, default True)
 if os.environ.get("ENABLE_SWAGGER", "true").lower() in {"1", "true", "yes"}:
     swagger_template = {
@@ -129,6 +141,12 @@ if os.environ.get("ENABLE_SWAGGER", "true").lower() in {"1", "true", "yes"}:
         },
     }
     Swagger(app, template=swagger_template)
+=======
+# Initialize monitoring system
+if monitoring_enabled:
+    monitoring_manager = MonitoringManager(app, redis_client)
+    init_monitoring_routes(app, monitoring_manager)
+>>>>>>> b28f5094ca619337d16581977a03c41e361d6027
 
 # Database Models
 
@@ -704,6 +722,7 @@ def delete_scenario(scenario_id):
 # Financial Data API Endpoints
 @app.route('/api/financial-data/<ticker>', methods=['GET'])
 def get_financial_data(ticker):
+<<<<<<< HEAD
     """Get comprehensive financial data for a ticker
     ---
     tags:
@@ -723,6 +742,12 @@ def get_financial_data(ticker):
       500:
         description: Server error
     """
+=======
+    """Get comprehensive financial data for a ticker"""
+    start_time = time.time()
+    success = False
+    
+>>>>>>> b28f5094ca619337d16581977a03c41e361d6027
     try:
         # Fetch data from Alpha Vantage
         overview_data = financial_api.get_company_overview(ticker)
@@ -739,6 +764,7 @@ def get_financial_data(ticker):
         # Parse and structure the data
         parsed_data = parse_financial_data(overview_data, income_data, balance_data, cash_flow_data)
         
+        success = True
         return jsonify({
             'success': True,
             'data': parsed_data
@@ -746,9 +772,20 @@ def get_financial_data(ticker):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        # Record metrics if monitoring is enabled
+        if monitoring_enabled:
+            duration = time.time() - start_time
+            monitoring_manager.record_financial_calculation(
+                calculation_type="financial_data_fetch",
+                duration=duration,
+                success=success,
+                tenant=request.headers.get('X-Tenant-ID', 'default')
+            )
 
 @app.route('/api/financial-data/<ticker>/dcf-inputs', methods=['GET'])
 def get_dcf_inputs(ticker):
+<<<<<<< HEAD
     """Get DCF model inputs calculated from financial data
     ---
     tags:
@@ -768,6 +805,12 @@ def get_dcf_inputs(ticker):
       500:
         description: Server error
     """
+=======
+    """Get DCF model inputs calculated from financial data"""
+    start_time = time.time()
+    success = False
+    
+>>>>>>> b28f5094ca619337d16581977a03c41e361d6027
     try:
         # Fetch data from Alpha Vantage
         overview_data = financial_api.get_company_overview(ticker)
@@ -787,6 +830,7 @@ def get_dcf_inputs(ticker):
         # Calculate DCF inputs
         dcf_inputs = calculate_dcf_inputs(parsed_data)
         
+        success = True
         return jsonify({
             'success': True,
             'data': dcf_inputs
@@ -794,6 +838,16 @@ def get_dcf_inputs(ticker):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        # Record metrics if monitoring is enabled
+        if monitoring_enabled:
+            duration = time.time() - start_time
+            monitoring_manager.record_financial_calculation(
+                calculation_type="dcf_inputs_calculation",
+                duration=duration,
+                success=success,
+                tenant=request.headers.get('X-Tenant-ID', 'default')
+            )
 
 @app.route('/api/financial-data/<ticker>/historical-prices', methods=['GET'])
 def get_historical_prices(ticker):
