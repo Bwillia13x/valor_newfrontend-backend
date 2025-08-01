@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Valor IVX — LBO Analysis</title>
 <link rel="stylesheet" href="./styles.css">
+<meta name="color-scheme" content="light dark" />
+<link rel="prefetch" href="./js/modules/advanced-charting.js" as="script" />
+<link rel="prefetch" href="./js/modules/video-conference.js" as="script" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>
@@ -308,5 +311,43 @@
   </main>
 
   <script type="module" src="./js/lbo-main.js"></script>
+  <script type="module">
+    import { setupSWUpdateBanner } from './js/modules/sw-update.js';
+    setupSWUpdateBanner();
+  </script>
+<script type="module">
+  // Lazy-load heavy modules after first interaction/idle for performance
+  const lazyModules = [
+    './js/modules/advanced-charting.js',
+    './js/modules/video-conference.js'
+  ];
+  function lazyImport() {
+    lazyModules.forEach((m) => import(m).catch(() => {}));
+    window.removeEventListener('pointerdown', lazyImportOnce);
+    window.removeEventListener('keydown', lazyImportOnce);
+  }
+  function lazyImportOnce() { lazyImport(); }
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(() => lazyImport());
+  } else {
+    setTimeout(() => lazyImport(), 1500);
+  }
+  window.addEventListener('pointerdown', lazyImportOnce, { once: true });
+  window.addEventListener('keydown', lazyImportOnce, { once: true });
+
+  // Long task observer
+  if ('PerformanceObserver' in window) {
+    try {
+      const po = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (entry.duration > 50) {
+            console.info('[Perf] Long task detected', { duration: entry.duration.toFixed(1) + 'ms' });
+          }
+        }
+      });
+      po.observe({ entryTypes: ['longtask'] });
+    } catch {}
+  }
+</script>
 </body>
-</html> 
+</html>

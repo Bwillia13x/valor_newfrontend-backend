@@ -301,7 +301,7 @@ SQLALCHEMY_DATABASE_URI = 'postgresql://user:pass@localhost/valor_ivx'
 - Use environment variables for secrets
 - Implement API versioning
 
-## 📊 Monitoring and Logging
+## 📊 Monitoring, Observability, and Logging
 
 ### Health Checks
 The application includes a health check endpoint at `/api/health` that returns:
@@ -309,12 +309,31 @@ The application includes a health check endpoint at `/api/health` that returns:
 - Timestamp
 - Version information
 
-### Logging
-Configure logging in production:
-```python
-import logging
-logging.basicConfig(level=logging.INFO)
-```
+### Structured Logging (structlog)
+Logging is centralized in `backend/logging.py`. Configure via `backend/settings.py`:
+- `LOG_JSON`: true/false to output JSON logs
+- `LOG_LEVEL`: default INFO
+
+Request-scoped fields automatically added (when available):
+- `request_id` (propagated via `X-Request-ID`)
+- `tenant_id` (set by tenancy middleware)
+- `method`, `path`, `remote_addr`, `user_agent`
+
+### Prometheus Metrics
+Prometheus integration lives in `backend/metrics.py` and is wired in `backend/app.py`.
+Enable with:
+- `FEATURE_PROMETHEUS_METRICS=true`
+- `METRICS_ROUTE=/metrics` (default)
+
+Multiprocess Gunicorn support (set a writable directory):
+- `PROMETHEUS_MULTIPROC_DIR=/tmp/prom-multiproc`
+
+HTTP metrics:
+- `http_requests_total{method,endpoint,status,tenant}`
+- `http_request_duration_seconds`
+
+Celery task metrics:
+- `celery_tasks_total{task_name,status}`
 
 ## 🤝 Contributing
 
@@ -346,4 +365,4 @@ For issues, questions, or contributions:
 
 ---
 
-**Valor IVX Backend** - Professional-grade API for financial modeling applications. 
+**Valor IVX Backend** - Professional-grade API for financial modeling applications.

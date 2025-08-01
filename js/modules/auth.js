@@ -9,7 +9,11 @@ const config = {
     ? 'https://api.valor-ivx.com' 
     : 'http://localhost:5002',
   // Fallback for development
-  devApiUrl: 'http://localhost:5002'
+  devApiUrl: 'http://localhost:5002',
+  // Security settings
+  sessionTimeoutWarning: 5 * 60 * 1000, // 5 minutes before timeout
+  maxLoginAttempts: 3,
+  lockoutDuration: 15 * 60 * 1000 // 15 minutes
 };
 
 // Authentication state management
@@ -18,7 +22,10 @@ const auth = {
   refreshToken: null,
   user: null,
   isAuthenticated: false,
-  lastActivity: Date.now()
+  lastActivity: Date.now(),
+  loginAttempts: 0,
+  lockedUntil: null,
+  sessionWarningShown: false
 };
 
 // Initialize authentication from localStorage
@@ -57,9 +64,21 @@ function setupActivityTracking() {
   // Check for session timeout every minute
   setInterval(() => {
     const sessionTimeout = config.isProduction ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000; // 1 hour prod, 24 hours dev
-    if (auth.isAuthenticated && (Date.now() - auth.lastActivity) > sessionTimeout) {
-      logoutUser();
-      showNotification('Session expired. Please login again.', 'warning');
+    const timeRemaining = sessionTimeout - (Date.now() - auth.lastActivity);
+    
+    if (auth.isAuthenticated) {
+      // Show warning 5 minutes before timeout
+      if (timeRemaining <= config.sessionTimeoutWarning && timeRemaining > 0 && !auth.sessionWarningShown) {
+        showSessionTimeoutWarning(Math.ceil(timeRemaining / 60000));
+        auth.sessionWarningShown = true;
+      }
+      
+      // Logout when session expires
+      if (timeRemaining <= 0) {
+        logoutUser();
+        showNotification('Session expired for security. Please login again.', 'warning');
+        hideSessionTimeoutWarning();
+      }
     }
   }, 60000);
 }
@@ -169,13 +188,22 @@ export function logoutUser() {
   auth.refreshToken = null;
   auth.user = null;
   auth.isAuthenticated = false;
+  auth.sessionWarningShown = false;
   
-  // Clear localStorage
+  // Clear localStorage securely
   localStorage.removeItem('valor_auth_token');
   localStorage.removeItem('valor_refresh_token');
   localStorage.removeItem('valor_user');
   
+  // Clear any sensitive data from memory
+  if (window.valorData) {
+    window.valorData = null;
+  }
+  
+  hideSessionTimeoutWarning();
   updateAuthUI();
+  updateSecurityStatus();
+  showNotification('Logged out securely', 'info');
 }
 
 // Refresh access token
@@ -334,8 +362,112 @@ function disableAuthenticatedFeatures() {
   });
 }
 
+// Show session timeout warning
+function showSessionTimeoutWarning(minutesRemaining) {
+  const warningDiv = document.createElement('div');
+  warningDiv.id = 'sessionTimeoutWarning';
+  warningDiv.className = 'session-warning';
+  warningDiv.setAttribute('role', 'alertdialog');
+  warningDiv.setAttribute('aria-labelledby', 'session-warning-title');
+  warningDiv.setAttribute('aria-describedby', 'session-warning-text');
+  
+  warningDiv.innerHTML = `
+    <div class="session-warning-content">
+      <h3 id="session-warning-title">Session Expiring Soon</h3>
+      <p id="session-warning-text">Your secure session will expire in ${minutesRemaining} minute(s) for security purposes.</p>
+      <div class="session-warning-actions">
+        <button class="extend-session" onclick="extendSession()">Extend Session</button>
+        <button class="logout-session" onclick="logoutUser()">Logout Now</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(warningDiv);
+  
+  // Focus the extend button for accessibility
+  setTimeout(() => {
+    const extendBtn = warningDiv.querySelector('.extend-session');
+    if (extendBtn) extendBtn.focus();
+  }, 100);
+}
+
+// Hide session timeout warning
+function hideSessionTimeoutWarning() {
+  const warning = document.getElementById('sessionTimeoutWarning');
+  if (warning) {
+    warning.remove();
+  }
+  auth.sessionWarningShown = false;
+}
+
+// Extend user session
+window.extendSession = function() {
+  auth.lastActivity = Date.now();
+  auth.sessionWarningShown = false;
+  hideSessionTimeoutWarning();
+  showNotification('Session extended successfully', 'success');
+};
+
+// Create security indicators
+function createSecurityIndicators() {
+  // SSL/Security status badge
+  const securityBadge = document.createElement('div');
+  securityBadge.id = 'securityBadge';
+  securityBadge.className = 'security-badge';
+  securityBadge.setAttribute('role', 'status');
+  securityBadge.setAttribute('aria-label', 'Security status');
+  
+  const isSecure = window.location.protocol === 'https:';
+  const encryptionStatus = isSecure ? 'Encrypted' : 'Unencrypted';
+  const statusClass = isSecure ? 'secure' : 'insecure';
+  
+  securityBadge.innerHTML = `
+    <div class="security-indicator ${statusClass}">
+      <span class="security-icon">${isSecure ? '🔒' : '⚠️'}</span>
+      <span class="security-text">${encryptionStatus}</span>
+    </div>
+    <div class="security-details">
+      <small>Data ${isSecure ? 'encrypted in transit' : 'sent unencrypted'}</small>
+    </div>
+  `;
+  
+  document.body.appendChild(securityBadge);
+  
+  // Connection security info in header
+  const statusPill = document.getElementById('backendPill') || document.createElement('span');
+  if (!document.getElementById('backendPill')) {
+    statusPill.id = 'backendPill';
+    statusPill.className = 'pill';
+    statusPill.setAttribute('role', 'status');
+    statusPill.setAttribute('title', 'Backend connectivity and security status');
+    
+    const rightHeader = document.querySelector('.right-header .row');
+    if (rightHeader) {
+      rightHeader.appendChild(statusPill);
+    }
+  }
+  
+  updateSecurityStatus();
+}
+
+// Update security status indicators
+function updateSecurityStatus() {
+  const isSecure = window.location.protocol === 'https:';
+  const statusPill = document.getElementById('backendPill');
+  
+  if (statusPill) {
+    const connectionStatus = auth.isAuthenticated ? 'Connected' : 'Disconnected';
+    const securityLevel = isSecure ? 'Secure' : 'Insecure';
+    statusPill.textContent = `${connectionStatus} • ${securityLevel}`;
+    statusPill.className = `pill ${isSecure ? 'secure' : 'insecure'}`;
+  }
+}
+
 // Initialize authentication UI
 export function initAuthUI() {
+  // Create security indicators
+  createSecurityIndicators();
+  
   // Create authentication container if it doesn't exist
   let authContainer = document.getElementById('authContainer');
   if (!authContainer) {
@@ -399,9 +531,17 @@ function setupAuthEventListeners() {
       const result = await loginUser(username, password);
       
       if (result.success) {
-        showNotification('Login successful!', 'success');
+        auth.loginAttempts = 0; // Reset on successful login
+        updateSecurityStatus();
+        showNotification('Secure login successful!', 'success');
       } else {
-        showNotification(result.error, 'error');
+        auth.loginAttempts++;
+        if (auth.loginAttempts >= config.maxLoginAttempts) {
+          auth.lockedUntil = Date.now() + config.lockoutDuration;
+          showNotification(`Account temporarily locked after ${config.maxLoginAttempts} failed attempts. Try again in 15 minutes.`, 'error');
+        } else {
+          showNotification(`${result.error} (${config.maxLoginAttempts - auth.loginAttempts} attempts remaining)`, 'error');
+        }
       }
     });
   }

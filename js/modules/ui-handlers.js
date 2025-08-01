@@ -13,16 +13,63 @@ let currentResult = null;
 let mcCancelSignal = { requested: false };
 let overlaySeries = null;
 
+let __toastRegion;
+let __lastFocused;
+
+function ensureToastRegion() {
+  if (!__toastRegion) {
+    __toastRegion = document.getElementById("aria-live-toasts");
+    if (!__toastRegion) {
+      __toastRegion = document.createElement("div");
+      __toastRegion.id = "aria-live-toasts";
+      __toastRegion.setAttribute("role", "region");
+      __toastRegion.setAttribute("aria-live", "polite");
+      __toastRegion.setAttribute("aria-atomic", "true");
+      __toastRegion.style.position = "fixed";
+      __toastRegion.style.top = "20px";
+      __toastRegion.style.right = "20px";
+      __toastRegion.style.zIndex = "1002";
+      document.body.appendChild(__toastRegion);
+    }
+  }
+  return __toastRegion;
+}
+
+export function showToast(message, type = "info", timeoutMs = 3000) {
+  const region = ensureToastRegion();
+  const toast = document.createElement("div");
+  toast.className = `pwa-notification`;
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
+  toast.innerHTML = `
+    <div class="pwa-notification-content">
+      <strong>${type.toUpperCase()}</strong>
+      <span>${message}</span>
+      <div class="row" style="gap:6px;margin-top:6px;justify-content:flex-end">
+        <button class="btn" data-toast-dismiss>Dismiss</button>
+      </div>
+    </div>
+  `;
+  region.appendChild(toast);
+
+  const dismiss = () => toast.remove();
+  toast.querySelector('[data-toast-dismiss]')?.addEventListener("click", dismiss);
+  if (timeoutMs > 0) setTimeout(dismiss, timeoutMs);
+}
+
 // Logging utilities
 export function logLine(msg, cls = "") {
   const terminal = document.getElementById("terminal");
-  if (!terminal) return;
-  
-  const line = document.createElement("div");
-  line.className = `term-line ${cls}`;
-  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-  terminal.appendChild(line);
-  terminal.scrollTop = terminal.scrollHeight;
+  if (terminal) {
+    const line = document.createElement("div");
+    line.className = `term-line ${cls}`;
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    terminal.appendChild(line);
+    terminal.scrollTop = terminal.scrollHeight;
+  }
+  // Mirror to toasts for errors/warnings to improve visibility
+  if (cls?.includes("err")) showToast(msg, "error", 4000);
+  else if (cls?.includes("warn")) showToast(msg, "warning", 3500);
 }
 
 // Update KPI display
@@ -60,12 +107,26 @@ export async function run() {
     updateStatusPill("Running...", "running");
     
     const inputs = readInputs();
-    const errors = validateInputs(inputs);
+    const validation = validateInputs(inputs);
     
-    if (errors.length > 0) {
+    if (validation.errors.length > 0) {
       updateStatusPill("Validation Errors", "error");
-      errors.forEach(error => logLine(error, "err"));
+      validation.errors.forEach(error => {
+        logLine(`❌ ${error.message}`, "err");
+        if (error.explanation) {
+          logLine(`   💡 ${error.explanation}`, "err-detail");
+        }
+        if (error.suggestion) {
+          logLine(`   📝 ${error.suggestion}`, "err-suggestion");
+        }
+      });
       return;
+    }
+    
+    if (validation.warnings.length > 0) {
+      validation.warnings.forEach(warning => {
+        logLine(`⚠️  ${warning}`, "warn");
+      });
     }
     
     // Get terminal value method
@@ -242,8 +303,40 @@ export function switchTab(tabName, tabList) {
 export function openSolver() {
   const modal = document.getElementById("solverModal");
   if (modal) {
+    __lastFocused = document.activeElement;
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
     modal.style.display = "flex";
-    document.getElementById("solverTarget")?.focus();
+    // Focus first focusable element
+    const first = modal.querySelector("input, select, textarea, button, [tabindex]:not([tabindex='-1'])");
+    (first || modal).focus();
+
+    // Simple focus trap
+    const focusable = () =>
+      Array.from(modal.querySelectorAll("input, select, textarea, button, [tabindex]:not([tabindex='-1'])"))
+        .filter(el => !el.hasAttribute("disabled"));
+    const onKey = (e) => {
+      if (e.key === "Tab") {
+        const nodes = focusable();
+        if (!nodes.length) return;
+        const idx = nodes.indexOf(document.activeElement);
+        if (e.shiftKey) {
+          if (idx <= 0) {
+            nodes[nodes.length - 1].focus();
+            e.preventDefault();
+          }
+        } else {
+          if (idx === nodes.length - 1) {
+            nodes[0].focus();
+            e.preventDefault();
+          }
+        }
+      } else if (e.key === "Escape") {
+        closeSolver();
+      }
+    };
+    modal.__trapHandler = onKey;
+    document.addEventListener("keydown", onKey);
   }
 }
 
@@ -251,6 +344,14 @@ export function closeSolver() {
   const modal = document.getElementById("solverModal");
   if (modal) {
     modal.style.display = "none";
+    if (modal.__trapHandler) {
+      document.removeEventListener("keydown", modal.__trapHandler);
+      delete modal.__trapHandler;
+    }
+    // Return focus to previously focused trigger if still in DOM
+    if (__lastFocused && document.contains(__lastFocused)) {
+      __lastFocused.focus();
+    }
   }
 }
 
@@ -366,8 +467,339 @@ export function handleCli(line) {
   }
 }
 
+// Mobile financial input enhancements
+function initializeMobileOptimizations() {
+  // Add quick value buttons for common financial inputs
+  const financialInputs = [
+    { id: 'wacc', values: [7, 8, 9, 10, 11, 12], suffix: '%' },
+    { id: 'termGrowth', values: [1.5, 2.0, 2.5, 3.0], suffix: '%' },
+    { id: 'ebitMargin', values: [15, 20, 25, 30], suffix: '%' },
+    { id: 'salesToCap', values: [1.5, 2.0, 2.5, 3.0, 3.5], suffix: '' }
+  ];
+  
+  financialInputs.forEach(input => {
+    const inputElement = document.getElementById(input.id);
+    if (inputElement && inputElement.parentNode) {
+      const quickValuesDiv = document.createElement('div');
+      quickValuesDiv.className = 'quick-values';
+      
+      input.values.forEach(value => {
+        const btn = document.createElement('button');
+        btn.className = 'quick-value-btn';
+        btn.textContent = `${value}${input.suffix}`;
+        btn.type = 'button';
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          inputElement.value = value;
+          inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+          // Provide haptic feedback on mobile
+          if (navigator.vibrate) {
+            navigator.vibrate(10);
+          }
+        });
+        quickValuesDiv.appendChild(btn);
+      });
+      
+      inputElement.parentNode.appendChild(quickValuesDiv);
+    }
+  });
+  
+  // Enhanced mobile chart interactions
+  const charts = document.querySelectorAll('canvas');
+  charts.forEach(canvas => {
+    let touchStartTime = 0;
+    let touchStartPos = { x: 0, y: 0 };
+    
+    canvas.addEventListener('touchstart', (e) => {
+      touchStartTime = Date.now();
+      if (e.touches.length === 1) {
+        touchStartPos = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY
+        };
+      }
+    }, { passive: true });
+    
+    canvas.addEventListener('touchend', (e) => {
+      const touchEndTime = Date.now();
+      const touchDuration = touchEndTime - touchStartTime;
+      
+      // Detect tap vs swipe
+      if (touchDuration < 300 && e.changedTouches.length === 1) {
+        const touchEndPos = {
+          x: e.changedTouches[0].clientX,
+          y: e.changedTouches[0].clientY
+        };
+        
+        const distance = Math.sqrt(
+          Math.pow(touchEndPos.x - touchStartPos.x, 2) +
+          Math.pow(touchEndPos.y - touchStartPos.y, 2)
+        );
+        
+        // If it's a tap (not a swipe), show tooltip
+        if (distance < 20) {
+          // Trigger chart tooltip/interaction
+          canvas.dispatchEvent(new MouseEvent('click', {
+            clientX: touchEndPos.x,
+            clientY: touchEndPos.y
+          }));
+        }
+      }
+    }, { passive: true });
+  });
+  
+  // Enhanced real-time validation with financial context
+  const numberInputs = document.querySelectorAll('input[type="number"]');
+  numberInputs.forEach(input => {
+    // Real-time validation on input
+    input.addEventListener('input', (e) => {
+      const value = parseFloat(e.target.value);
+      
+      // Auto-format number inputs
+      if (!isNaN(value) && e.target.step) {
+        const step = parseFloat(e.target.step);
+        const decimals = step >= 1 ? 0 : step.toString().split('.')[1]?.length || 0;
+        
+        // Format with appropriate decimal places
+        if (e.target.value !== '' && !e.target.value.endsWith('.')) {
+          const formatted = value.toFixed(decimals);
+          if (parseFloat(formatted) === value) {
+            e.target.value = formatted;
+          }
+        }
+      }
+      
+      // Real-time contextual validation
+      validateInputRealTime(e.target);
+    });
+    
+    // Enhanced blur validation
+    input.addEventListener('blur', (e) => {
+      validateInputRealTime(e.target, true);
+    });
+    
+    // Show financial context on focus
+    input.addEventListener('focus', (e) => {
+      showFinancialInputContext(e.target);
+    });
+  });
+  
+  // Add live validation for key financial relationships
+  const waccInput = document.getElementById('wacc');
+  const termGrowthInput = document.getElementById('termGrowth');
+  
+  if (waccInput && termGrowthInput) {
+    [waccInput, termGrowthInput].forEach(input => {
+      input.addEventListener('input', () => {
+        validateWaccTermGrowthRelationship();
+      });
+    });
+  }
+}
+
+// Real-time input validation with financial context
+function validateInputRealTime(input, isBlur = false) {
+  const value = parseFloat(input.value);
+  const id = input.id;
+  const min = parseFloat(input.min) || -Infinity;
+  const max = parseFloat(input.max) || Infinity;
+  
+  // Clear previous styling
+  input.classList.remove('validation-error', 'validation-warning');
+  
+  // Remove existing tooltips
+  const existingTooltip = input.parentNode.querySelector('.validation-tooltip');
+  if (existingTooltip) {
+    existingTooltip.remove();
+  }
+  
+  if (isNaN(value) && input.value !== '') {
+    showValidationError(input, 'Must be a valid number');
+    return;
+  }
+  
+  if (!isNaN(value)) {
+    // Basic range validation
+    if (value < min || value > max) {
+      showValidationError(input, `Value must be between ${min} and ${max}`);
+      return;
+    }
+    
+    // Financial context validation
+    const warning = getFinancialContextWarning(id, value);
+    if (warning) {
+      showValidationWarning(input, warning);
+      return;
+    }
+    
+    // Success styling for positive validation
+    if (isBlur) {
+      input.style.borderColor = '#10b981';
+      input.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.2)';
+      setTimeout(() => {
+        input.style.borderColor = '';
+        input.style.boxShadow = '';
+      }, 1500);
+    }
+  }
+}
+
+// Show validation error with enhanced styling
+function showValidationError(input, message) {
+  input.classList.add('validation-error');
+  
+  const tooltip = document.createElement('div');
+  tooltip.className = 'validation-tooltip error';
+  tooltip.textContent = message;
+  input.parentNode.appendChild(tooltip);
+  
+  // Auto-hide after 3 seconds
+  setTimeout(() => {
+    if (tooltip.parentNode) {
+      tooltip.remove();
+    }
+  }, 3000);
+}
+
+// Show validation warning
+function showValidationWarning(input, message) {
+  input.classList.add('validation-warning');
+  
+  const tooltip = document.createElement('div');
+  tooltip.className = 'validation-tooltip warning';
+  tooltip.textContent = message;
+  input.parentNode.appendChild(tooltip);
+  
+  // Auto-hide after 4 seconds
+  setTimeout(() => {
+    if (tooltip.parentNode) {
+      tooltip.remove();
+    }
+  }, 4000);
+}
+
+// Get financial context warnings
+function getFinancialContextWarning(fieldId, value) {
+  const warnings = {
+    wacc: {
+      high: { threshold: 0.2, message: 'WACC above 20% suggests high-risk or distressed company' },
+      low: { threshold: 0.04, message: 'WACC below 4% is unusually low - verify risk assessment' }
+    },
+    termGrowth: {
+      high: { threshold: 0.04, message: 'Terminal growth >4% exceeds long-term GDP growth' },
+      negative: { threshold: 0, message: 'Negative terminal growth assumes permanent decline' }
+    },
+    ebitMargin: {
+      high: { threshold: 0.5, message: 'EBIT margin >50% is exceptional - verify sustainability' },
+      low: { threshold: 0.05, message: 'EBIT margin <5% indicates low profitability' }
+    },
+    salesToCap: {
+      high: { threshold: 8, message: 'Sales-to-Capital >8 suggests highly efficient operations' },
+      low: { threshold: 0.5, message: 'Sales-to-Capital <0.5 indicates capital-intensive business' }
+    },
+    taxRate: {
+      high: { threshold: 0.4, message: 'Tax rate >40% is high - verify jurisdiction' },
+      low: { threshold: 0.1, message: 'Tax rate <10% is unusually low' }
+    }
+  };
+  
+  const fieldWarnings = warnings[fieldId];
+  if (!fieldWarnings) return null;
+  
+  if (fieldWarnings.high && value > fieldWarnings.high.threshold) {
+    return fieldWarnings.high.message;
+  }
+  
+  if (fieldWarnings.low && value < fieldWarnings.low.threshold) {
+    return fieldWarnings.low.message;
+  }
+  
+  if (fieldWarnings.negative && value < fieldWarnings.negative.threshold) {
+    return fieldWarnings.negative.message;
+  }
+  
+  return null;
+}
+
+// Show financial input context
+function showFinancialInputContext(input) {
+  const contexts = {
+    wacc: 'Weighted Average Cost of Capital - reflects company risk and capital structure',
+    termGrowth: 'Long-term growth rate for terminal value calculation',
+    ebitMargin: 'EBIT margin indicates operational efficiency and pricing power',
+    salesToCap: 'Sales-to-Capital ratio measures asset utilization efficiency',
+    taxRate: 'Effective corporate tax rate for NOPAT calculation',
+    revenue: 'Base year revenue for growth projections (in millions)',
+    shares: 'Diluted shares outstanding for per-share value calculation'
+  };
+  
+  const context = contexts[input.id];
+  if (context) {
+    // Show context briefly in a subtle way
+    const existingHint = input.parentNode.querySelector('.input-context-hint');
+    if (existingHint) existingHint.remove();
+    
+    const hint = document.createElement('div');
+    hint.className = 'input-context-hint';
+    hint.textContent = context;
+    input.parentNode.appendChild(hint);
+    
+    setTimeout(() => {
+      if (hint.parentNode) {
+        hint.style.opacity = '0';
+        setTimeout(() => hint.remove(), 300);
+      }
+    }, 2000);
+  }
+}
+
+// Validate WACC and terminal growth relationship in real-time
+function validateWaccTermGrowthRelationship() {
+  const waccInput = document.getElementById('wacc');
+  const termGrowthInput = document.getElementById('termGrowth');
+  
+  if (!waccInput || !termGrowthInput) return;
+  
+  const wacc = parseFloat(waccInput.value) / 100;
+  const termGrowth = parseFloat(termGrowthInput.value) / 100;
+  
+  // Clear previous relationship warnings
+  [waccInput, termGrowthInput].forEach(input => {
+    const relationshipWarning = input.parentNode.querySelector('.relationship-warning');
+    if (relationshipWarning) relationshipWarning.remove();
+    input.classList.remove('relationship-error');
+  });
+  
+  if (!isNaN(wacc) && !isNaN(termGrowth)) {
+    if (termGrowth >= wacc) {
+      // Show error on both fields
+      [waccInput, termGrowthInput].forEach(input => {
+        input.classList.add('relationship-error');
+        
+        const warning = document.createElement('div');
+        warning.className = 'validation-tooltip relationship-warning';
+        warning.textContent = 'Terminal growth must be less than WACC for valid DCF model';
+        input.parentNode.appendChild(warning);
+      });
+    } else if (wacc - termGrowth < 0.005) {
+      // Show warning when they're very close
+      [waccInput, termGrowthInput].forEach(input => {
+        const warning = document.createElement('div');
+        warning.className = 'validation-tooltip warning relationship-warning';
+        warning.textContent = 'WACC and terminal growth are very close - consider increasing spread';
+        input.parentNode.appendChild(warning);
+      });
+    }
+  }
+}
+
 // Initialize UI event listeners
 export function initializeUI() {
+  // Initialize mobile optimizations
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    initializeMobileOptimizations();
+  }
+  
   // Main action buttons
   document.getElementById("runModel")?.addEventListener("click", run);
   document.getElementById("presetExample")?.addEventListener("click", preset);
@@ -479,4 +911,4 @@ export function initializeUI() {
   // Initialize on load
   logLine("Valor IVX initialized");
   cliHelp();
-} 
+}

@@ -117,49 +117,203 @@ export function dcfEngine(params) {
   };
 }
 
-// Input validation with visual feedback
+// Enhanced financial validation with contextual explanations
 export function validateInputs(inputs) {
   const errors = [];
+  const warnings = [];
+  
   const markInvalid = (id, on) => {
     const el = document.getElementById(id);
-    if (el) el.setAttribute("aria-invalid", on ? "true" : "false");
+    if (el) {
+      el.setAttribute("aria-invalid", on ? "true" : "false");
+      // Add visual feedback class
+      if (on) {
+        el.classList.add('validation-error');
+      } else {
+        el.classList.remove('validation-error');
+      }
+    }
+  };
+  
+  const showFieldWarning = (id, message) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.add('validation-warning');
+      // Create or update warning tooltip
+      let tooltip = el.parentNode.querySelector('.validation-tooltip');
+      if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.className = 'validation-tooltip warning';
+        el.parentNode.appendChild(tooltip);
+      }
+      tooltip.textContent = message;
+      tooltip.style.display = 'block';
+    }
+  };
+  
+  const clearWarnings = (id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.remove('validation-warning');
+      const tooltip = el.parentNode.querySelector('.validation-tooltip');
+      if (tooltip) tooltip.style.display = 'none';
+    }
   };
   
   // Clear previous validation marks
-  ["wacc", "termGrowth", "years", "taxRate", "salesToCap", "stage1End", "stage2End"].forEach((id) =>
-    markInvalid(id, false)
-  );
+  const validationFields = ["wacc", "termGrowth", "years", "taxRate", "salesToCap", "stage1End", "stage2End", 
+                           "ebitMargin", "revenue", "shares", "netDebt", "s1Growth", "s2Growth", "s3Growth",
+                           "s1Margin", "s2Margin", "s3Margin", "s1S2C", "s2S2C", "s3S2C"];
+  
+  validationFields.forEach((id) => {
+    markInvalid(id, false);
+    clearWarnings(id);
+  });
 
+  // Critical financial constraints
   if (inputs.termGrowth >= inputs.wacc) {
-    errors.push("Terminal growth must be less than WACC.");
+    errors.push({
+      message: "Terminal growth rate cannot equal or exceed WACC",
+      explanation: "This violates the Gordon Growth Model assumptions and would result in infinite or negative valuation. In efficient markets, no company can grow faster than the cost of capital indefinitely.",
+      suggestion: `Consider reducing terminal growth to ${(inputs.wacc * 100 - 0.5).toFixed(1)}% or increasing WACC to ${(inputs.termGrowth * 100 + 0.5).toFixed(1)}%`,
+      fields: ["termGrowth", "wacc"]
+    });
     markInvalid("termGrowth", true);
     markInvalid("wacc", true);
   }
+  
+  // Stage sequencing validation
   if (inputs.stage2End <= inputs.stage1End) {
-    errors.push("Stage 2 end must be after Stage 1 end.");
+    errors.push({
+      message: "Growth stage timeline is invalid",
+      explanation: "Stage 2 must begin after Stage 1 ends to maintain proper modeling sequence. This ensures logical progression from high-growth to mature phases.",
+      suggestion: `Set Stage 2 end to year ${inputs.stage1End + 2} or later`,
+      fields: ["stage2End", "stage1End"]
+    });
     markInvalid("stage2End", true);
     markInvalid("stage1End", true);
   }
+  
   if (inputs.stage1End > inputs.years || inputs.stage2End > inputs.years) {
-    errors.push("Stage end years must not exceed projection years.");
+    errors.push({
+      message: "Growth stages exceed projection period",
+      explanation: "Stage endpoints cannot be beyond the total projection years. This would create gaps in the forecast model.",
+      suggestion: `Increase projection years to ${Math.max(inputs.stage1End, inputs.stage2End) + 1} or reduce stage endpoints`,
+      fields: ["stage1End", "stage2End", "years"]
+    });
     markInvalid("stage1End", true);
     markInvalid("stage2End", true);
     markInvalid("years", true);
   }
+  
+  // Financial range validations with industry context
   if (inputs.years < 3 || inputs.years > 15) {
-    errors.push("Projection years must be between 3 and 15.");
+    errors.push({
+      message: "Projection period outside acceptable range",
+      explanation: "DCF models require 3-15 years for reliability. Shorter periods lack sufficient data; longer periods have excessive uncertainty.",
+      suggestion: "Industry standard is 5-10 years depending on business cycle and visibility",
+      fields: ["years"]
+    });
     markInvalid("years", true);
   }
-  if (inputs.taxRate < 0 || inputs.taxRate > 1) {
-    errors.push("Tax rate must be between 0% and 100%.");
+  
+  if (inputs.taxRate < 0 || inputs.taxRate > 0.6) {
+    errors.push({
+      message: "Tax rate outside reasonable bounds",
+      explanation: "Corporate tax rates typically range from 15-35% globally. Rates above 60% are unrealistic for most jurisdictions.",
+      suggestion: "Check local corporate tax rates. US federal rate is 21%, most developed markets are 20-30%",
+      fields: ["taxRate"]
+    });
     markInvalid("taxRate", true);
   }
-  if (inputs.salesToCap <= 0) {
-    errors.push("Sales-to-Capital must be positive.");
+  
+  if (inputs.salesToCap <= 0 || inputs.salesToCap > 10) {
+    errors.push({
+      message: "Sales-to-Capital ratio is unrealistic",
+      explanation: "This ratio measures capital efficiency. Values below 0.5 suggest capital-intensive businesses; above 5 suggests highly efficient operations.",
+      suggestion: "Typical ranges: Tech (3-6), Manufacturing (1-3), Utilities (0.3-1), Retail (4-8)",
+      fields: ["salesToCap"]
+    });
     markInvalid("salesToCap", true);
   }
+  
+  // WACC validation with market context
+  if (inputs.wacc < 0.03 || inputs.wacc > 0.25) {
+    errors.push({
+      message: "WACC outside typical market range",
+      explanation: "Cost of capital below 3% or above 25% is unusual. Very low rates suggest risk-free assets; very high rates suggest distressed situations.",
+      suggestion: "Typical ranges: Large-cap (6-12%), Mid-cap (8-15%), Small-cap/Growth (10-20%)",
+      fields: ["wacc"]
+    });
+    markInvalid("wacc", true);
+  }
+  
+  // Revenue and size validations
+  if (inputs.revenue <= 0) {
+    errors.push({
+      message: "Revenue must be positive",
+      explanation: "Base year revenue is required for all projections. This represents the starting point for growth calculations.",
+      suggestion: "Enter the most recent annual revenue in millions",
+      fields: ["revenue"]
+    });
+    markInvalid("revenue", true);
+  }
+  
+  if (inputs.shares <= 0) {
+    errors.push({
+      message: "Share count must be positive",
+      explanation: "Outstanding shares are needed to calculate per-share value from enterprise value.",
+      suggestion: "Use diluted shares outstanding from most recent financial statements",
+      fields: ["shares"]
+    });
+    markInvalid("shares", true);
+  }
+  
+  // Growth rate warnings (not errors)
+  if (inputs.s1Growth > 0.5) {
+    warnings.push("Stage 1 growth above 50% annually is very aggressive for most businesses");
+    showFieldWarning("s1Growth", "Growth >50% is rare and typically unsustainable");
+  }
+  
+  if (inputs.s1Growth < 0) {
+    warnings.push("Negative growth in Stage 1 suggests declining business fundamentals");
+    showFieldWarning("s1Growth", "Consider if company is in turnaround situation");
+  }
+  
+  // Margin validation with industry context
+  const marginFields = [{field: "s1Margin", stage: "Stage 1"}, {field: "s2Margin", stage: "Stage 2"}, {field: "s3Margin", stage: "Stage 3"}];
+  marginFields.forEach(({field, stage}) => {
+    const margin = inputs[field];
+    if (margin > 0.6) {
+      warnings.push(`${stage} margin above 60% is exceptionally high`);
+      showFieldWarning(field, "Margins >60% are rare except in software/IP businesses");
+    }
+    if (margin < 0) {
+      warnings.push(`${stage} has negative margins`);
+      showFieldWarning(field, "Negative margins suggest operational challenges");
+    }
+  });
+  
+  // Terminal growth warnings
+  if (inputs.termGrowth > 0.04) {
+    warnings.push("Terminal growth above 4% exceeds long-term GDP growth in most developed markets");
+    showFieldWarning("termGrowth", "Consider using 2-3% for conservative modeling");
+  }
+  
+  if (inputs.termGrowth < 0) {
+    warnings.push("Negative terminal growth assumes permanent decline");
+    showFieldWarning("termGrowth", "Typically used only for declining industries");
+  }
+  
+  // Debt-to-equity warnings
+  const impliedEquityValue = (inputs.revenue * 3); // Rough approximation
+  const debtToEquityRatio = Math.abs(inputs.netDebt) / impliedEquityValue;
+  if (debtToEquityRatio > 2) {
+    warnings.push("High debt levels may indicate financial distress");
+    showFieldWarning("netDebt", "D/E ratio appears elevated - verify capital structure");
+  }
 
-  return errors;
+  return { errors, warnings };
 }
 
 // Compute key performance indicators

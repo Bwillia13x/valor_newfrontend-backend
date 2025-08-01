@@ -1,10 +1,64 @@
-// Valor IVX - Utilities Module
-// Common helper functions and utilities
+/* Valor IVX - Utilities Module
+ * Common helper functions and utilities
+ * Extended with standardized error handling and logging utilities
+ */
 
-// DOM helpers
+/* ========== DOM helpers ========== */
 export const $ = (id) => document.getElementById(id);
 
-// Formatting utilities
+/* ========== Error handling & logging ========== */
+/**
+ * Normalize any thrown value into a consistent shape.
+ * Returns: { code, message, details }
+ */
+export function normalizeError(err, fallbackMessage = "Unexpected error") {
+  if (!err) return { code: "UNKNOWN", message: fallbackMessage, details: null };
+  if (typeof err === "string") return { code: "ERROR", message: err, details: null };
+  if (err.name === "AbortError") return { code: "ABORTED", message: "Request aborted", details: null };
+  const code = err.code || err.status || "ERROR";
+  const message = err.message || fallbackMessage;
+  const details = err.stack ? { stack: err.stack } : null;
+  return { code, message, details };
+}
+
+/**
+ * Basic logger with level gating. In production, this could POST to /api/logs.
+ */
+export const Logger = (() => {
+  const levelPriority = { debug: 10, info: 20, warn: 30, error: 40 };
+  let current = "info";
+  function setLevel(lvl) { if (levelPriority[lvl]) current = lvl; }
+  function shouldLog(lvl) { return levelPriority[lvl] >= levelPriority[current]; }
+  function fmtPayload(payload) {
+    try { return typeof payload === "string" ? payload : JSON.stringify(payload); } catch { return String(payload); }
+  }
+  return {
+    setLevel,
+    debug: (...args) => shouldLog("debug") && console.debug("[VI:DEBUG]", ...args),
+    info:  (...args) => shouldLog("info")  && console.info("[VI:INFO]", ...args),
+    warn:  (...args) => shouldLog("warn")  && console.warn("[VI:WARN]", ...args),
+    error: (...args) => shouldLog("error") && console.error("[VI:ERROR]", ...args),
+    logEvent: (name, payload = {}) => shouldLog("info") && console.info(`[VI:EVENT] ${name}`, fmtPayload(payload)),
+  };
+})();
+
+/**
+ * Safe JSON parse with fallback
+ */
+export function safeJsonParse(text, fallback = null) {
+  try { return JSON.parse(text); } catch { return fallback; }
+}
+
+/**
+ * Timeout a promise (e.g., fetch) after ms
+ */
+export function withTimeout(promise, ms, reason = "timeout") {
+  let to;
+  const timeout = new Promise((_, rej) => { to = setTimeout(() => rej(new Error(reason)), ms); });
+  return Promise.race([promise.finally(() => clearTimeout(to)), timeout]);
+}
+
+/* ========== Formatting utilities ========== */
 export const fmt = (n, opts = {}) => {
   if (!isFinite(n)) return "—";
   const { currency = false, decimals = 0, suffix = "" } = opts;
@@ -36,7 +90,7 @@ export function randn(seedFn) {
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
-// Local storage utilities
+/* ========== Local storage utilities ========== */
 export function loadFromStorage(key, defaultValue = null) {
   try {
     const item = localStorage.getItem(key);
@@ -133,7 +187,7 @@ export function decodeStateFromQuery() {
   };
 }
 
-// Export utilities
+/* ========== Export utilities ========== */
 export function exportCanvasPNG(canvas, name) {
   try {
     const link = document.createElement("a");
@@ -179,4 +233,4 @@ export function toCSV(series, totals, params) {
   lines.push(`Terminal Value %,${(totals.tvPct * 100)?.toFixed(1) || ""}`);
   
   return lines.join("\n");
-} 
+}

@@ -957,10 +957,73 @@ window.ValorIVX = {
     }
 };
 
+function setupServiceWorkerUpdates() {
+  if (!('serviceWorker' in navigator)) return;
+
+  function showUpdatePrompt(registration) {
+    // Minimal inline prompt to avoid importing additional modules here
+    const prompt = document.createElement('div');
+    prompt.className = 'pwa-update-notification';
+    prompt.innerHTML = `
+      <div class="pwa-update-content">
+        <span>Update available</span>
+        <div style="display:flex; gap:8px; margin-left:auto">
+          <button id="sw-refresh-now" class="btn primary" style="padding:6px 10px;font-size:12px">Update now</button>
+          <button id="sw-dismiss" class="btn" style="padding:6px 10px;font-size:12px">Later</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(prompt);
+
+    const cleanup = () => prompt.remove();
+
+    prompt.querySelector('#sw-dismiss')?.addEventListener('click', cleanup);
+    prompt.querySelector('#sw-refresh-now')?.addEventListener('click', () => {
+      cleanup();
+      if (registration.waiting) {
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+    });
+
+    // Reload when the new SW takes control
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
+    }, { once: true });
+  }
+
+  navigator.serviceWorker.register('/sw.js')
+    .then((registration) => {
+      // If there's an already waiting worker, prompt immediately
+      if (registration.waiting) {
+        showUpdatePrompt(registration);
+        return;
+      }
+
+      // Listen for updates being found
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // A new update has been installed and is waiting
+            showUpdatePrompt(registration);
+          }
+        });
+      });
+
+      // Also check periodically for updates
+      setInterval(() => registration.update().catch(() => {}), 60 * 60 * 1000); // hourly
+    })
+    .catch(() => {
+      // ignore SW registration errors silently to avoid impacting UX
+    });
+}
+
 // Initialize application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.ValorIVX.init();
+    setupServiceWorkerUpdates();
 });
 
 // Export for use in other modules
-window.ValorIVX = window.ValorIVX; 
+window.ValorIVX = window.ValorIVX;

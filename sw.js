@@ -3,9 +3,12 @@
  * Handles offline caching, background sync, and app updates
  */
 
-const CACHE_NAME = 'valor-ivx-v1.0.0';
-const STATIC_CACHE = 'valor-ivx-static-v1.0.0';
-const DYNAMIC_CACHE = 'valor-ivx-dynamic-v1.0.0';
+const APP_VERSION = '1.2.0';
+const CACHE_VERSION = APP_VERSION; // tie to build version
+const STATIC_CACHE = `valor-ivx-static-v${CACHE_VERSION}`;
+const RUNTIME_CACHE = `valor-ivx-runtime-v${CACHE_VERSION}`;
+const API_CACHE = `valor-ivx-api-v${CACHE_VERSION}`;
+const FALLBACK_CACHE = `valor-ivx-fallback-v${CACHE_VERSION}`;
 
 // Files to cache for offline use
 const STATIC_FILES = [
@@ -35,207 +38,245 @@ const STATIC_FILES = [
     '/manifest.json'
 ];
 
-// API endpoints to cache
-const API_CACHE = [
-    '/api/health',
-    '/api/financial-data/',
-    '/api/runs',
-    '/api/lbo/runs',
-    '/api/ma/runs',
-    '/api/scenarios'
-];
+// Fallback assets (should be small, always available)
+const OFFLINE_FALLBACK_URL = '/index.html'; // basic offline fallback
+const NOT_FOUND_FALLBACK = new Response('Not Found', { status: 404 });
+
+/**
+ * Navigation fallback for SPA routes
+ */
+const NAV_FALLBACK_URL = OFFLINE_FALLBACK_URL;
 
 // Install event - cache static files
 self.addEventListener('install', (event) => {
-    console.log('[SW] Installing service worker...');
-    
-    event.waitUntil(
-        caches.open(STATIC_CACHE)
-            .then((cache) => {
-                console.log('[SW] Caching static files');
-                return cache.addAll(STATIC_FILES);
-            })
-            .then(() => {
-                console.log('[SW] Static files cached successfully');
-                return self.skipWaiting();
-            })
-            .catch((error) => {
-                console.error('[SW] Failed to cache static files:', error);
-            })
-    );
+  console.log('[SW] Installing service worker...');
+
+  event.waitUntil(
+    (async () => {
+      try {
+        const [staticCache, fallbackCache] = await Promise.all([
+          caches.open(STATIC_CACHE),
+          caches.open(FALLBACK_CACHE),
+        ]);
+        console.log('[SW] Caching static files');
+        await staticCache.addAll(STATIC_FILES);
+        // Ensure fallback page is cached
+        try {
+          const resp = await fetch(OFFLINE_FALLBACK_URL, { cache: 'reload' });
+          if (resp.ok) await fallbackCache.put(OFFLINE_FALLBACK_URL, resp.clone());
+        } catch (e) {
+          console.warn('[SW] Could not prefetch fallback:', e);
+        }
+        console.log('[SW] Static files cached successfully');
+        await self.skipWaiting();
+      } catch (error) {
+        console.error('[SW] Failed to cache static files:', error);
+      }
+    })()
+  );
 });
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-    console.log('[SW] Activating service worker...');
-    
-    event.waitUntil(
-        caches.keys()
-            .then((cacheNames) => {
-                return Promise.all(
-                    cacheNames.map((cacheName) => {
-                        if (cacheName !== STATIC_CACHE && cacheName !== DYNAMIC_CACHE) {
-                            console.log('[SW] Deleting old cache:', cacheName);
-                            return caches.delete(cacheName);
-                        }
-                    })
-                );
-            })
-            .then(() => {
-                console.log('[SW] Service worker activated');
-                return self.clients.claim();
-            })
-    );
+  console.log('[SW] Activating service worker...');
+
+  event.waitUntil(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys.map((key) => {
+          if (![STATIC_CACHE, RUNTIME_CACHE, API_CACHE, FALLBACK_CACHE].includes(key)) {
+            console.log('[SW] Deleting old cache:', key);
+            return caches.delete(key);
+          }
+        })
+      );
+      console.log('[SW] Service worker activated');
+      await self.clients.claim();
+    })()
+  );
 });
 
 // Fetch event - serve from cache when offline
 self.addEventListener('fetch', (event) => {
-    const { request } = event;
-    const url = new URL(request.url);
-    
-    // Skip non-GET requests
-    if (request.method !== 'GET') {
-        return;
-    }
-    
-    // Handle API requests
-    if (url.pathname.startsWith('/api/')) {
-        event.respondWith(handleApiRequest(request));
-        return;
-    }
-    
-    // Handle static file requests
-    if (url.origin === self.location.origin) {
-        event.respondWith(handleStaticRequest(request));
-        return;
-    }
-    
-    // Handle external requests (financial data APIs)
-    if (url.hostname.includes('alphavantage.co')) {
-        event.respondWith(handleExternalRequest(request));
-        return;
-    }
+  const { request } = event;
+  const url = new URL(request.url);
+
+  // Skip non-GET requests
+  if (request.method !== 'GET') return;
+
+  // Navigation requests: SPA fallback
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      (async () => {
+        try {
+          const preload = await event.preloadResponse;
+          if (preload) return preload;
+          const network = await fetch(request);
+          return network;
+        } catch {
+          const cache = await caches.open(STATIC_CACHE);
+          const cached = await cache.match(NAV_FALLBACK_URL);
+          return cached || Response.error();
+        }
+      })()
+    );
+    return;
+  }
+
+  // Handle API requests
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(handleApiRequest(request));
+    return;
+  }
+
+  // Handle static file requests from same origin
+  if (url.origin === self.location.origin) {
+    event.respondWith(handleStaticRequest(request));
+    return;
+  }
+
+  // Handle external requests (financial data APIs)
+  if (url.hostname.includes('alphavantage.co')) {
+    event.respondWith(handleExternalRequest(request));
+    return;
+  }
 });
 
 /**
  * Handle API requests with offline support
  */
 async function handleApiRequest(request) {
+  // NetworkFirst with timeout, fallback to cache for GETs, SWR otherwise
+  const isGET = request.method === 'GET';
+  const cache = await caches.open(API_CACHE);
+
+  if (isGET) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-        // Try network first
-        const response = await fetch(request);
-        
-        if (response.ok) {
-            // Cache successful responses
-            const cache = await caches.open(DYNAMIC_CACHE);
-            cache.put(request, response.clone());
-            return response;
-        }
-    } catch (error) {
-        console.log('[SW] Network request failed, trying cache:', error);
+      const network = await fetch(request, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (network && network.ok) cache.put(request, network.clone());
+      const cached = await cache.match(request);
+      return network.ok ? network : cached || offlineApiResponse();
+    } catch (e) {
+      clearTimeout(timeout);
+      const cached = await cache.match(request);
+      return cached || offlineApiResponse();
     }
-    
-    // Fallback to cache
-    const cachedResponse = await caches.match(request);
-    if (cachedResponse) {
-        return cachedResponse;
+  }
+
+  // For non-GET (mutations), try network, no cache write
+  try {
+    return await fetch(request);
+  } catch {
+    return offlineApiResponse();
+  }
+}
+
+function offlineApiResponse() {
+  return new Response(
+    JSON.stringify({
+      success: false,
+      error: 'Offline mode - data not available',
+      offline: true
+    }),
+    {
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: { 'Content-Type': 'application/json' }
     }
-    
-    // Return offline response for API requests
-    return new Response(
-        JSON.stringify({
-            success: false,
-            error: 'Offline mode - data not available',
-            offline: true
-        }),
-        {
-            status: 503,
-            statusText: 'Service Unavailable',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        }
-    );
+  );
 }
 
 /**
  * Handle static file requests
  */
 async function handleStaticRequest(request) {
-    // Try cache first for static files
-    const cachedResponse = await caches.match(request);
-    if (cachedResponse) {
-        return cachedResponse;
-    }
-    
-    // Fallback to network
-    try {
-        const response = await fetch(request);
-        if (response.ok) {
-            // Cache new static files
-            const cache = await caches.open(STATIC_CACHE);
-            cache.put(request, response.clone());
-        }
-        return response;
-    } catch (error) {
-        console.error('[SW] Failed to fetch static file:', error);
-        
-        // Return offline page for HTML requests
-        if (request.headers.get('accept').includes('text/html')) {
-            return caches.match('/index.html');
-        }
-    }
+  // Cache-first for static assets
+  // Stale-While-Revalidate for same-origin static assets
+  const cache = await caches.open(STATIC_CACHE);
+  const cachedResponse = await cache.match(request);
+  const fetchPromise = fetch(request)
+    .then((networkResponse) => {
+      if (networkResponse && networkResponse.ok) {
+        cache.put(request, networkResponse.clone());
+      }
+      return networkResponse;
+    })
+    .catch(() => undefined);
+
+  if (cachedResponse) {
+    // Kick off revalidate in background
+    fetchPromise.catch(() => {});
+    return cachedResponse;
+  }
+
+  try {
+    const network = await fetchPromise;
+    if (network) return network;
+  } catch (e) {
+    // ignore
+  }
+
+  // Return offline page for HTML requests
+  const accept = request.headers.get('accept') || '';
+  if (accept.includes('text/html')) {
+    const fb = await (await caches.open(FALLBACK_CACHE)).match(OFFLINE_FALLBACK_URL);
+    return fb || new Response('Offline', { status: 503 });
+  }
+  return new Response('', { status: 504 });
 }
 
 /**
  * Handle external API requests
  */
 async function handleExternalRequest(request) {
-    try {
-        // Try network first
-        const response = await fetch(request);
-        
-        if (response.ok) {
-            // Cache external API responses
-            const cache = await caches.open(DYNAMIC_CACHE);
-            cache.put(request, response.clone());
-            return response;
-        }
-    } catch (error) {
-        console.log('[SW] External API request failed, trying cache:', error);
+  // CacheFirst with background revalidate for third-party content
+  const cache = await caches.open(RUNTIME_CACHE);
+  const cached = await cache.match(request);
+  const revalidate = fetch(request)
+    .then((resp) => {
+      if (resp && resp.ok) cache.put(request, resp.clone());
+      return resp;
+    })
+    .catch(() => undefined);
+
+  if (cached) {
+    revalidate.catch(() => {});
+    return cached;
+  }
+
+  try {
+    const network = await revalidate;
+    if (network) return network;
+  } catch (e) {
+    // ignore
+  }
+
+  return new Response(
+    JSON.stringify({
+      success: false,
+      error: 'External API unavailable offline',
+    }),
+    {
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: { 'Content-Type': 'application/json' },
     }
-    
-    // Fallback to cache
-    const cachedResponse = await caches.match(request);
-    if (cachedResponse) {
-        return cachedResponse;
-    }
-    
-    // Return error response
-    return new Response(
-        JSON.stringify({
-            success: false,
-            error: 'External API unavailable offline'
-        }),
-        {
-            status: 503,
-            statusText: 'Service Unavailable',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        }
-    );
+  );
 }
 
 /**
  * Background sync for offline data
  */
 self.addEventListener('sync', (event) => {
-    console.log('[SW] Background sync triggered:', event.tag);
-    
-    if (event.tag === 'sync-offline-data') {
-        event.waitUntil(syncOfflineData());
-    }
+  console.log('[SW] Background sync triggered:', event.tag);
+
+  if (event.tag === 'sync-offline-data') {
+    event.waitUntil(syncOfflineData());
+  }
 });
 
 /**
@@ -341,15 +382,33 @@ self.addEventListener('notificationclick', (event) => {
  * Message handling from main thread
  */
 self.addEventListener('message', (event) => {
-    console.log('[SW] Message received:', event.data);
-    
-    if (event.data && event.data.type === 'SKIP_WAITING') {
-        self.skipWaiting();
-    }
-    
-    if (event.data && event.data.type === 'GET_VERSION') {
-        event.ports[0].postMessage({ version: CACHE_NAME });
-    }
+  console.log('[SW] Message received:', event.data);
+
+  const data = event.data || {};
+  if (data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+
+  if (data.type === 'GET_VERSION') {
+    event.ports[0]?.postMessage({
+      version: APP_VERSION,
+      caches: {
+        static: STATIC_CACHE,
+        runtime: RUNTIME_CACHE,
+        api: API_CACHE,
+        fallback: FALLBACK_CACHE,
+      },
+    });
+  }
+
+  if (data.type === 'CLEAR_CACHES') {
+    event.waitUntil(
+      (async () => {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      })()
+    );
+  }
 });
 
 /**

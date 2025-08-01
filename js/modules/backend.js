@@ -1,3 +1,6 @@
+import { normalizeError, Logger, withTimeout } from "./utils.js";
+import { showToast } from "./ui-handlers.js";
+
 // Valor IVX - Backend Communication Module
 // Handles API interactions and backend status management
 
@@ -20,15 +23,21 @@ export function setBackendPill(text, ok) {
 // Safe fetch with latency tracking and error handling
 export async function safeFetch(url, opts = {}) {
   const t0 = performance.now();
+  const controller = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 8000;
+  const headers = {
+    ...(opts.headers || {}),
+    "X-Requested-With": "ValorIVX",
+  };
   try {
-    const res = await fetch(url, { ...opts });
+    const res = await withTimeout(fetch(url, { ...opts, headers, signal: controller.signal }), timeoutMs, "fetch-timeout");
     const t1 = performance.now();
     backend.lastLatencyMs = t1 - t0;
     const ok = res.ok;
     backend.status = ok ? "online" : "offline";
     setBackendPill(`Backend: ${ok ? "Online" : "Offline"}${isFinite(backend.lastLatencyMs) ? ` • ${backend.lastLatencyMs.toFixed(0)} ms` : ""}`, ok);
     if (!ok) {
-      console.warn(`Backend request failed ${res.status} ${res.statusText} (${url})`);
+      Logger.warn("Backend request failed", { url, status: res.status, statusText: res.statusText });
       return { ok: false, status: res.status, res };
     }
     return { ok: true, res };
@@ -37,58 +46,89 @@ export async function safeFetch(url, opts = {}) {
     backend.lastLatencyMs = t1 - t0;
     backend.status = "offline";
     setBackendPill(`Backend: Offline • ${backend.lastLatencyMs?.toFixed(0)} ms`, false);
-    console.warn(`Backend unreachable (${url}): ${err?.message || err}`);
-    return { ok: false, error: err };
+    const nerr = normalizeError(err);
+    Logger.warn("Backend unreachable", { url, error: nerr });
+    return { ok: false, error: nerr };
+  } finally {
+    controller.abort(); // ensure no leaks
   }
 }
 
 // Backend API functions
 export async function sendRunToBackend(runData) {
-  const { ok, res } = await safeFetch("http://localhost:5002/api/runs", {
+  const { ok, res, error } = await safeFetch("http://localhost:5002/api/runs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(runData)
   });
-  
   if (ok) {
-    const data = await res.json();
-    return { success: true, data };
+    try {
+      const data = await res.json();
+      return { success: true, data };
+    } catch (e) {
+      const msg = normalizeError(e).message;
+      showToast(`Failed to parse backend response: ${msg}`, { type: "error", ttl: 6000 });
+      return { success: false, error: msg };
+    }
   }
-  return { success: false, error: res?.status || "Network error" };
+  const msg = error?.message || `HTTP ${res?.status ?? "Network error"}`;
+  showToast(`Send run failed: ${msg}`, { type: "error", ttl: 6000 });
+  return { success: false, error: msg };
 }
 
 export async function loadLastRunFromBackend() {
-  const { ok, res } = await safeFetch("http://localhost:5002/api/runs/last");
-  
+  const { ok, res, error } = await safeFetch("http://localhost:5002/api/runs/last");
   if (ok) {
-    const data = await res.json();
-    return { success: true, data };
+    try {
+      const data = await res.json();
+      return { success: true, data };
+    } catch (e) {
+      const msg = normalizeError(e).message;
+      showToast(`Failed to parse last run: ${msg}`, { type: "error", ttl: 6000 });
+      return { success: false, error: msg };
+    }
   }
-  return { success: false, error: res?.status || "Network error" };
+  const msg = error?.message || `HTTP ${res?.status ?? "Network error"}`;
+  showToast(`Load last run failed: ${msg}`, { type: "error", ttl: 6000 });
+  return { success: false, error: msg };
 }
 
 export async function sendScenariosToBackend(scenarios) {
-  const { ok, res } = await safeFetch("http://localhost:5002/api/scenarios", {
+  const { ok, res, error } = await safeFetch("http://localhost:5002/api/scenarios", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(scenarios)
   });
-  
   if (ok) {
-    const data = await res.json();
-    return { success: true, data };
+    try {
+      const data = await res.json();
+      return { success: true, data };
+    } catch (e) {
+      const msg = normalizeError(e).message;
+      showToast(`Failed to parse scenarios response: ${msg}`, { type: "error", ttl: 6000 });
+      return { success: false, error: msg };
+    }
   }
-  return { success: false, error: res?.status || "Network error" };
+  const msg = error?.message || `HTTP ${res?.status ?? "Network error"}`;
+  showToast(`Send scenarios failed: ${msg}`, { type: "error", ttl: 6000 });
+  return { success: false, error: msg };
 }
 
 export async function fetchScenariosFromBackend() {
-  const { ok, res } = await safeFetch("http://localhost:5002/api/scenarios");
-  
+  const { ok, res, error } = await safeFetch("http://localhost:5002/api/scenarios");
   if (ok) {
-    const data = await res.json();
-    return { success: true, data };
+    try {
+      const data = await res.json();
+      return { success: true, data };
+    } catch (e) {
+      const msg = normalizeError(e).message;
+      showToast(`Failed to parse fetched scenarios: ${msg}`, { type: "error", ttl: 6000 });
+      return { success: false, error: msg };
+    }
   }
-  return { success: false, error: res?.status || "Network error" };
+  const msg = error?.message || `HTTP ${res?.status ?? "Network error"}`;
+  showToast(`Fetch scenarios failed: ${msg}`, { type: "error", ttl: 6000 });
+  return { success: false, error: msg };
 }
 
 // Initialize backend status
@@ -102,4 +142,4 @@ export function getBackendStatus() {
     status: backend.status,
     latency: backend.lastLatencyMs
   };
-} 
+}

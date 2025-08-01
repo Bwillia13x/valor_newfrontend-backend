@@ -9,16 +9,24 @@ handling data persistence, user management, and financial analysis storage.
 import os
 import json
 import uuid
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, g
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import (
     JWTManager, jwt_required, create_access_token,
     get_jwt_identity, get_jwt
 )
+from flasgger import Swagger
+from pydantic import BaseModel, ValidationError
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+import time
+from .logging import configure_logging, request_start, log_request, logger
+from .metrics import init_app as metrics_init_app, before_request as metrics_before_request, after_request as metrics_after_request
+from .settings import settings
 
 # Import financial data module
 from financial_data import financial_api, parse_financial_data, calculate_dcf_inputs
@@ -39,6 +47,49 @@ class Config:
 app = Flask(__name__, static_folder='../', static_url_path='')
 app.config.from_object(Config)
 
+# Configure structured logging (JSON by default via settings)
+configure_logging()
+app.logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+
+# Structured JSON logging and request ID middleware
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        base = {
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "logger": record.name,
+            "time": datetime.utcnow().isoformat() + "Z",
+        }
+        req_id = getattr(g, "request_id", None)
+        if req_id:
+            base["request_id"] = req_id
+        try:
+            return json.dumps(base)
+        except Exception:
+            return super().format(record)
+
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter())
+app.logger.handlers = []
+app.logger.addHandler(handler)
+app.logger.setLevel(logging.INFO)
+
+@app.before_request
+def inject_request_id() -> None:
+    rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    g.request_id = rid
+    # start request timers/logging
+    request_start()
+    # metrics timer handled from metrics_before_request via additional before_request registration below
+
+@app.after_request
+def set_request_id_header(response):
+    rid = getattr(g, "request_id", None)
+    if rid:
+        response.headers["X-Request-ID"] = rid
+    # structured access log
+    return log_request(response)
+
 # Initialize extensions
 CORS(app, origins=['http://localhost:8000', 'http://127.0.0.1:8000', 'http://localhost:5001', 'http://127.0.0.1:5001'])
 db = SQLAlchemy(app)
@@ -47,7 +98,48 @@ jwt = JWTManager(app)
 # Initialize WebSocket manager with app
 websocket_manager.init_app(app)
 
+# Swagger (OpenAPI) setup (feature-flag via ENABLE_SWAGGER, default True)
+if os.environ.get("ENABLE_SWAGGER", "true").lower() in {"1", "true", "yes"}:
+    swagger_template = {
+        "swagger": "2.0",
+        "info": {
+            "title": "Valor IVX Backend API",
+            "description": "API documentation for Valor IVX services",
+            "version": "1.0.0",
+        },
+        "schemes": ["http", "https"],
+        "basePath": "/",
+        "tags": [
+            {"name": "System", "description": "System and health endpoints"},
+            {"name": "Runs", "description": "DCF Runs management"},
+            {"name": "Scenarios", "description": "DCF Scenarios management"},
+            {"name": "Financial Data", "description": "Financial data retrieval"},
+            {"name": "LBO", "description": "LBO runs and scenarios"},
+            {"name": "M&A", "description": "M&A runs and scenarios"},
+            {"name": "WebSocket", "description": "Realtime/WebSocket status"}
+        ],
+        "basePath": "/",
+        "securityDefinitions": {
+            "BearerAuth": {
+                "type": "apiKey",
+                "name": "Authorization",
+                "in": "header",
+                "description": "JWT Authorization header using the Bearer scheme. Example: 'Bearer {token}'"
+            }
+        },
+    }
+    Swagger(app, template=swagger_template)
+
 # Database Models
+
+# Wire Prometheus metrics via centralized backend/metrics.py if feature enabled
+if settings.FEATURE_PROMETHEUS_METRICS:
+    # initialize metrics and expose /metrics via settings.METRICS_ROUTE
+    metrics_init_app(app)
+    # register before/after request hooks to instrument HTTP requests
+    app.before_request(metrics_before_request)
+    app.after_request(metrics_after_request)
+
 class User(db.Model):
     """User model for authentication and data ownership"""
     id = db.Column(db.Integer, primary_key=True)
@@ -239,15 +331,40 @@ def get_or_create_user() -> User:
         db.session.commit()
     return user
 
-def validate_run_data(data: Dict[str, Any]) -> bool:
-    """Validate run data structure"""
-    required_fields = ['inputs', 'mc_settings', 'timestamp']
-    return all(field in data for field in required_fields)
+# Pydantic schemas (minimal, additive; replaces ad-hoc validation where used)
+class RunInputSchema(BaseModel):
+    inputs: Dict[str, Any]
+    mc_settings: Optional[Dict[str, Any]] = None
+    results: Optional[Dict[str, Any]] = None
+    timestamp: Optional[Any] = None
 
-def validate_scenario_data(data: Dict[str, Any]) -> bool:
-    """Validate scenario data structure"""
-    required_fields = ['name', 'ticker', 'inputs']
-    return all(field in data for field in required_fields)
+class ScenarioSchema(BaseModel):
+    name: str
+    ticker: str
+    inputs: Dict[str, Any]
+    mc_settings: Optional[Dict[str, Any]] = None
+
+class LBORunSchema(BaseModel):
+    inputs: Dict[str, Any]
+    results: Optional[Dict[str, Any]] = None
+
+class LBOScenarioSchema(BaseModel):
+    name: str
+    inputs: Dict[str, Any]
+    companyName: Optional[str] = "Unknown"
+
+class MARunSchema(BaseModel):
+    deal_name: str
+    acquirer_name: str
+    target_name: str
+    inputs: Dict[str, Any]
+    results: Optional[Dict[str, Any]] = None
+
+def _validation_error_response(e: ValidationError):
+    return jsonify({
+        "error": "ValidationError",
+        "details": e.errors()
+    }), 400
 
 # API Routes
 
@@ -258,7 +375,21 @@ def index():
 
 @app.route('/api/health')
 def health_check():
-    """Health check endpoint"""
+    """Health check endpoint
+    ---
+    tags:
+      - System
+    security: []
+    responses:
+      200:
+        description: Service is healthy
+        schema:
+          type: object
+          properties:
+            status: { type: string, example: healthy }
+            timestamp: { type: string, format: date-time }
+            version: { type: string, example: "1.0.0" }
+    """
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.utcnow().isoformat(),
@@ -268,22 +399,45 @@ def health_check():
 # Run Management Endpoints
 @app.route('/api/runs', methods=['POST'])
 def save_run():
-    """Save a DCF analysis run"""
+    """Save a DCF analysis run
+    ---
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            inputs:
+              type: object
+            mc_settings:
+              type: object
+            results:
+              type: object
+    responses:
+      200:
+        description: Run saved
+      400:
+        description: Invalid payload
+    """
     try:
-        data = request.get_json()
-        if not data or not validate_run_data(data):
-            return jsonify({'error': 'Invalid run data'}), 400
-        
+        data = request.get_json() or {}
+        try:
+            payload = RunInputSchema.model_validate(data)
+        except ValidationError as e:
+            return _validation_error_response(e)
+
         user = get_or_create_user()
         
         # Create new run
         run = Run(
             user_id=user.id,
             run_id=str(uuid.uuid4()),
-            ticker=data.get('inputs', {}).get('ticker', 'UNKNOWN'),
-            inputs=json.dumps(data['inputs']),
-            mc_settings=json.dumps(data['mc_settings']) if data.get('mc_settings') else None,
-            results=json.dumps(data.get('results')) if data.get('results') else None
+            ticker=payload.inputs.get('ticker', 'UNKNOWN'),
+            inputs=json.dumps(payload.inputs),
+            mc_settings=json.dumps(payload.mc_settings) if payload.mc_settings else None,
+            results=json.dumps(payload.results) if payload.results else None
         )
         
         db.session.add(run)
@@ -297,11 +451,30 @@ def save_run():
         
     except Exception as e:
         db.session.rollback()
+        app.logger.error(f"save_run failed: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/runs/last', methods=['GET'])
 def get_last_run():
-    """Get the most recent run for the user"""
+    """Get the most recent run for the user
+    ---
+    tags:
+      - Runs
+    security: []
+    responses:
+      200:
+        description: Last run for the user
+        schema:
+          type: object
+          properties:
+            success: { type: boolean, example: true }
+            data:
+              type: object
+      404:
+        description: No runs found
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         run = Run.query.filter_by(user_id=user.id).order_by(Run.updated_at.desc()).first()
@@ -319,7 +492,24 @@ def get_last_run():
 
 @app.route('/api/runs/<run_id>', methods=['GET'])
 def get_run(run_id):
-    """Get a specific run by ID"""
+    """Get a specific run by ID
+    ---
+    tags:
+      - Runs
+    security: []
+    parameters:
+      - in: path
+        name: run_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Run found
+      404:
+        description: Run not found
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         run = Run.query.filter_by(user_id=user.id, run_id=run_id).first()
@@ -337,7 +527,24 @@ def get_run(run_id):
 
 @app.route('/api/runs', methods=['GET'])
 def list_runs():
-    """List all runs for the user"""
+    """List all runs for the user
+    ---
+    tags:
+      - Runs
+    security: []
+    responses:
+      200:
+        description: Runs listed
+        schema:
+          type: object
+          properties:
+            success: { type: boolean }
+            runs:
+              type: array
+              items: { type: object }
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         runs = Run.query.filter_by(user_id=user.id).order_by(Run.updated_at.desc()).limit(50).all()
@@ -353,40 +560,65 @@ def list_runs():
 # Scenario Management Endpoints
 @app.route('/api/scenarios', methods=['POST'])
 def save_scenarios():
-    """Save multiple scenarios"""
+    """Save multiple scenarios
+    ---
+    tags:
+      - Scenarios
+    security: []
+    ---
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        description: Array of scenarios
+        schema:
+          type: array
+          items:
+            type: object
+    responses:
+      200:
+        description: Scenarios saved
+      400:
+        description: Invalid payload
+    """
     try:
         data = request.get_json()
         if not data or not isinstance(data, list):
             return jsonify({'error': 'Invalid scenarios data'}), 400
-        
+
         user = get_or_create_user()
         saved_count = 0
         
         for scenario_data in data:
-            if not validate_scenario_data(scenario_data):
+            try:
+                sc = ScenarioSchema.model_validate(scenario_data)
+            except ValidationError as e:
+                # Skip invalid scenario but continue processing others
+                app.logger.warning(f"Invalid scenario payload skipped: {e.errors()}")
                 continue
             
             # Check if scenario already exists
             existing = Scenario.query.filter_by(
                 user_id=user.id,
-                ticker=scenario_data['ticker'],
-                name=scenario_data['name']
+                ticker=sc.ticker,
+                name=sc.name
             ).first()
             
             if existing:
                 # Update existing scenario
-                existing.inputs = json.dumps(scenario_data['inputs'])
-                existing.mc_settings = json.dumps(scenario_data.get('mc_settings')) if scenario_data.get('mc_settings') else None
+                existing.inputs = json.dumps(sc.inputs)
+                existing.mc_settings = json.dumps(sc.mc_settings) if sc.mc_settings else None
                 existing.updated_at = datetime.utcnow()
             else:
                 # Create new scenario
                 scenario = Scenario(
                     user_id=user.id,
                     scenario_id=str(uuid.uuid4()),
-                    name=scenario_data['name'],
-                    ticker=scenario_data['ticker'],
-                    inputs=json.dumps(scenario_data['inputs']),
-                    mc_settings=json.dumps(scenario_data.get('mc_settings')) if scenario_data.get('mc_settings') else None
+                    name=sc.name,
+                    ticker=sc.ticker,
+                    inputs=json.dumps(sc.inputs),
+                    mc_settings=json.dumps(sc.mc_settings) if sc.mc_settings else None
                 )
                 db.session.add(scenario)
             
@@ -402,11 +634,22 @@ def save_scenarios():
         
     except Exception as e:
         db.session.rollback()
+        app.logger.error(f"save_scenarios failed: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/scenarios', methods=['GET'])
 def get_scenarios():
-    """Get all scenarios for the user"""
+    """Get all scenarios for the user
+    ---
+    tags:
+      - Scenarios
+    security: []
+    responses:
+      200:
+        description: Scenarios listed
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         scenarios = Scenario.query.filter_by(user_id=user.id).order_by(Scenario.updated_at.desc()).all()
@@ -421,7 +664,24 @@ def get_scenarios():
 
 @app.route('/api/scenarios/<scenario_id>', methods=['DELETE'])
 def delete_scenario(scenario_id):
-    """Delete a specific scenario"""
+    """Delete a specific scenario
+    ---
+    tags:
+      - Scenarios
+    security: []
+    parameters:
+      - in: path
+        name: scenario_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Scenario deleted
+      404:
+        description: Scenario not found
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         scenario = Scenario.query.filter_by(user_id=user.id, scenario_id=scenario_id).first()
@@ -444,7 +704,25 @@ def delete_scenario(scenario_id):
 # Financial Data API Endpoints
 @app.route('/api/financial-data/<ticker>', methods=['GET'])
 def get_financial_data(ticker):
-    """Get comprehensive financial data for a ticker"""
+    """Get comprehensive financial data for a ticker
+    ---
+    tags:
+      - Financial Data
+    security: []
+    parameters:
+      - in: path
+        name: ticker
+        type: string
+        required: true
+        example: AAPL
+    responses:
+      200:
+        description: Financial data
+      404:
+        description: No data for ticker
+      500:
+        description: Server error
+    """
     try:
         # Fetch data from Alpha Vantage
         overview_data = financial_api.get_company_overview(ticker)
@@ -471,7 +749,25 @@ def get_financial_data(ticker):
 
 @app.route('/api/financial-data/<ticker>/dcf-inputs', methods=['GET'])
 def get_dcf_inputs(ticker):
-    """Get DCF model inputs calculated from financial data"""
+    """Get DCF model inputs calculated from financial data
+    ---
+    tags:
+      - Financial Data
+    security: []
+    parameters:
+      - in: path
+        name: ticker
+        type: string
+        required: true
+        example: MSFT
+    responses:
+      200:
+        description: DCF inputs
+      404:
+        description: No data for ticker
+      500:
+        description: Server error
+    """
     try:
         # Fetch data from Alpha Vantage
         overview_data = financial_api.get_company_overview(ticker)
@@ -501,7 +797,31 @@ def get_dcf_inputs(ticker):
 
 @app.route('/api/financial-data/<ticker>/historical-prices', methods=['GET'])
 def get_historical_prices(ticker):
-    """Get historical price data for a ticker"""
+    """Get historical price data for a ticker
+    ---
+    tags:
+      - Financial Data
+    security: []
+    parameters:
+      - in: path
+        name: ticker
+        type: string
+        required: true
+        example: NVDA
+      - in: query
+        name: interval
+        type: string
+        required: false
+        enum: [daily, weekly, monthly]
+        default: daily
+    responses:
+      200:
+        description: Historical prices
+      404:
+        description: No price data for ticker
+      500:
+        description: Server error
+    """
     try:
         interval = request.args.get('interval', 'daily')
         
@@ -525,21 +845,46 @@ def get_historical_prices(ticker):
 # LBO Management Endpoints
 @app.route('/api/lbo/runs', methods=['POST'])
 def save_lbo_run():
-    """Save an LBO analysis run"""
+    """Save an LBO analysis run
+    ---
+    tags:
+      - LBO
+    security: []
+    ---
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            inputs:
+              type: object
+            results:
+              type: object
+    responses:
+      200:
+        description: LBO run saved
+      400:
+        description: Invalid payload
+    """
     try:
-        data = request.get_json()
-        if not data or 'inputs' not in data:
-            return jsonify({'error': 'Invalid LBO run data'}), 400
-        
+        data = request.get_json() or {}
+        try:
+            payload = LBORunSchema.model_validate(data)
+        except ValidationError as e:
+            return _validation_error_response(e)
+
         user = get_or_create_user()
         
         # Create new LBO run
         lbo_run = LBORun(
             user_id=user.id,
             run_id=str(uuid.uuid4()),
-            company_name=data.get('inputs', {}).get('companyName', 'Unknown Company'),
-            inputs=json.dumps(data['inputs']),
-            results=json.dumps(data.get('results')) if data.get('results') else None
+            company_name=payload.inputs.get('companyName', 'Unknown Company'),
+            inputs=json.dumps(payload.inputs),
+            results=json.dumps(payload.results) if payload.results else None
         )
         
         db.session.add(lbo_run)
@@ -553,11 +898,24 @@ def save_lbo_run():
         
     except Exception as e:
         db.session.rollback()
+        app.logger.error(f"save_lbo_run failed: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/lbo/runs/last', methods=['GET'])
 def get_last_lbo_run():
-    """Get the most recent LBO run for the user"""
+    """Get the most recent LBO run for the user
+    ---
+    tags:
+      - LBO
+    security: []
+    responses:
+      200:
+        description: Last LBO run
+      404:
+        description: No LBO runs found
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         lbo_run = LBORun.query.filter_by(user_id=user.id).order_by(LBORun.updated_at.desc()).first()
@@ -575,7 +933,24 @@ def get_last_lbo_run():
 
 @app.route('/api/lbo/runs/<run_id>', methods=['GET'])
 def get_lbo_run(run_id):
-    """Get a specific LBO run by ID"""
+    """Get a specific LBO run by ID
+    ---
+    tags:
+      - LBO
+    security: []
+    parameters:
+      - in: path
+        name: run_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: LBO run found
+      404:
+        description: LBO run not found
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         lbo_run = LBORun.query.filter_by(user_id=user.id, run_id=run_id).first()
@@ -593,7 +968,17 @@ def get_lbo_run(run_id):
 
 @app.route('/api/lbo/runs', methods=['GET'])
 def list_lbo_runs():
-    """List all LBO runs for the user"""
+    """List all LBO runs for the user
+    ---
+    tags:
+      - LBO
+    security: []
+    responses:
+      200:
+        description: LBO runs listed
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         lbo_runs = LBORun.query.filter_by(user_id=user.id).order_by(LBORun.updated_at.desc()).limit(50).all()
@@ -608,7 +993,28 @@ def list_lbo_runs():
 
 @app.route('/api/lbo/scenarios', methods=['POST'])
 def save_lbo_scenarios():
-    """Save multiple LBO scenarios"""
+    """Save multiple LBO scenarios
+    ---
+    tags:
+      - LBO
+    security: []
+    ---
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        description: Array of LBO scenarios
+        schema:
+          type: array
+          items:
+            type: object
+    responses:
+      200:
+        description: Scenarios saved
+      400:
+        description: Invalid payload
+    """
     try:
         data = request.get_json()
         if not data or not isinstance(data, list):
@@ -618,28 +1024,31 @@ def save_lbo_scenarios():
         saved_count = 0
         
         for scenario_data in data:
-            if 'name' not in scenario_data or 'inputs' not in scenario_data:
+            try:
+                sc = LBOScenarioSchema.model_validate(scenario_data)
+            except ValidationError as e:
+                app.logger.warning(f"Invalid LBO scenario payload skipped: {e.errors()}")
                 continue
-            
+
             # Check if scenario already exists
             existing = LBOScenario.query.filter_by(
                 user_id=user.id,
-                company_name=scenario_data.get('companyName', 'Unknown'),
-                name=scenario_data['name']
+                company_name=sc.companyName or 'Unknown',
+                name=sc.name
             ).first()
             
             if existing:
                 # Update existing scenario
-                existing.inputs = json.dumps(scenario_data['inputs'])
+                existing.inputs = json.dumps(sc.inputs)
                 existing.updated_at = datetime.utcnow()
             else:
                 # Create new scenario
                 scenario = LBOScenario(
                     user_id=user.id,
                     scenario_id=str(uuid.uuid4()),
-                    name=scenario_data['name'],
-                    company_name=scenario_data.get('companyName', 'Unknown'),
-                    inputs=json.dumps(scenario_data['inputs'])
+                    name=sc.name,
+                    company_name=sc.companyName or 'Unknown',
+                    inputs=json.dumps(sc.inputs)
                 )
                 db.session.add(scenario)
             
@@ -655,11 +1064,22 @@ def save_lbo_scenarios():
         
     except Exception as e:
         db.session.rollback()
+        app.logger.error(f"save_lbo_scenarios failed: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/lbo/scenarios', methods=['GET'])
 def get_lbo_scenarios():
-    """Get all LBO scenarios for the user"""
+    """Get all LBO scenarios for the user
+    ---
+    tags:
+      - LBO
+    security: []
+    responses:
+      200:
+        description: LBO scenarios listed
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         scenarios = LBOScenario.query.filter_by(user_id=user.id).order_by(LBOScenario.updated_at.desc()).all()
@@ -674,7 +1094,24 @@ def get_lbo_scenarios():
 
 @app.route('/api/lbo/scenarios/<scenario_id>', methods=['DELETE'])
 def delete_lbo_scenario(scenario_id):
-    """Delete a specific LBO scenario"""
+    """Delete a specific LBO scenario
+    ---
+    tags:
+      - LBO
+    security: []
+    parameters:
+      - in: path
+        name: scenario_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: LBO scenario deleted
+      404:
+        description: LBO scenario not found
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         scenario = LBOScenario.query.filter_by(user_id=user.id, scenario_id=scenario_id).first()
@@ -697,7 +1134,22 @@ def delete_lbo_scenario(scenario_id):
 # Notes Management Endpoints
 @app.route('/api/notes/<ticker>', methods=['GET'])
 def get_notes(ticker):
-    """Get notes for a specific ticker"""
+    """Get notes for a specific ticker
+    ---
+    tags:
+      - Runs
+    security: []
+    parameters:
+      - in: path
+        name: ticker
+        type: string
+        required: true
+    responses:
+      200:
+        description: Notes content
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         note = Note.query.filter_by(user_id=user.id, ticker=ticker.upper()).first()
@@ -754,19 +1206,39 @@ def save_notes(ticker):
 # M&A Analysis Endpoints
 @app.route('/api/ma/runs', methods=['POST'])
 def save_ma_run():
-    """Save M&A analysis run"""
+    """Save M&A analysis run
+    ---
+    tags:
+      - M&A
+    security: []
+    ---
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            deal_name: { type: string }
+            acquirer_name: { type: string }
+            target_name: { type: string }
+            inputs: { type: object }
+            results: { type: object }
+    responses:
+      200:
+        description: M&A run saved
+      400:
+        description: Invalid payload
+    """
     try:
         user = get_or_create_user()
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        # Validate required fields
-        required_fields = ['deal_name', 'acquirer_name', 'target_name', 'inputs']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
+        data = request.get_json() or {}
+
+        try:
+            payload = MARunSchema.model_validate(data)
+        except ValidationError as e:
+            return _validation_error_response(e)
         
         # Generate run ID
         run_id = str(uuid.uuid4())
@@ -775,11 +1247,11 @@ def save_ma_run():
         ma_run = MARun(
             user_id=user.id,
             run_id=run_id,
-            deal_name=data['deal_name'],
-            acquirer_name=data['acquirer_name'],
-            target_name=data['target_name'],
-            inputs=json.dumps(data['inputs']),
-            results=json.dumps(data.get('results'))
+            deal_name=payload.deal_name,
+            acquirer_name=payload.acquirer_name,
+            target_name=payload.target_name,
+            inputs=json.dumps(payload.inputs),
+            results=json.dumps(payload.results) if payload.results else None
         )
         
         db.session.add(ma_run)
@@ -790,7 +1262,7 @@ def save_ma_run():
             'message': 'M&A run saved successfully',
             'data': {
                 'run_id': run_id,
-                'deal_name': data['deal_name']
+                'deal_name': payload.deal_name
             }
         })
         
@@ -801,7 +1273,19 @@ def save_ma_run():
 
 @app.route('/api/ma/runs/last', methods=['GET'])
 def get_last_ma_run():
-    """Get the most recent M&A run"""
+    """Get the most recent M&A run
+    ---
+    tags:
+      - M&A
+    security: []
+    responses:
+      200:
+        description: Last M&A run
+      404:
+        description: No M&A runs found
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         
@@ -822,7 +1306,24 @@ def get_last_ma_run():
 
 @app.route('/api/ma/runs/<run_id>', methods=['GET'])
 def get_ma_run(run_id):
-    """Get specific M&A run by ID"""
+    """Get specific M&A run by ID
+    ---
+    tags:
+      - M&A
+    security: []
+    parameters:
+      - in: path
+        name: run_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: M&A run found
+      404:
+        description: M&A run not found
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         
@@ -842,7 +1343,17 @@ def get_ma_run(run_id):
 
 @app.route('/api/ma/runs', methods=['GET'])
 def list_ma_runs():
-    """List all M&A runs for the user"""
+    """List all M&A runs for the user
+    ---
+    tags:
+      - M&A
+    security: []
+    responses:
+      200:
+        description: M&A runs listed
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         
@@ -859,28 +1370,51 @@ def list_ma_runs():
 
 @app.route('/api/ma/scenarios', methods=['POST'])
 def save_ma_scenarios():
-    """Save M&A scenarios"""
+    """Save M&A scenarios
+    ---
+    tags:
+      - M&A
+    security: []
+    ---
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        description: Object containing scenarios array
+        schema:
+          type: object
+          properties:
+            scenarios:
+              type: array
+              items: { type: object }
+    responses:
+      200:
+        description: Scenarios saved
+      400:
+        description: Invalid payload
+    """
     try:
         user = get_or_create_user()
-        data = request.get_json()
+        data = request.get_json() or {}
         
-        if not data or 'scenarios' not in data:
-            return jsonify({'error': 'Scenarios data is required'}), 400
+        scenarios_data = data.get('scenarios')
+        if not scenarios_data or not isinstance(scenarios_data, list):
+            return jsonify({'error': 'Scenarios must be a non-empty list'}), 400
         
-        scenarios_data = data['scenarios']
-        if not isinstance(scenarios_data, list):
-            return jsonify({'error': 'Scenarios must be a list'}), 400
-        
-        saved_scenarios = []
+        saved_scenarios: List[Dict[str, Any]] = []
         
         for scenario_data in scenarios_data:
-            # Validate required fields
+            # Validate fields using MARunSchema-compatible subset plus name
+            if not isinstance(scenario_data, dict):
+                continue
             required_fields = ['name', 'deal_name', 'acquirer_name', 'target_name', 'inputs']
-            for field in required_fields:
-                if field not in scenario_data:
-                    return jsonify({'error': f'Missing required field in scenario: {field}'}), 400
+            missing = [f for f in required_fields if f not in scenario_data]
+            if missing:
+                app.logger.warning(f"Skipping M&A scenario due to missing fields: {missing}")
+                continue
             
-            # Generate scenario ID
+            # Generate or reuse scenario ID
             scenario_id = str(uuid.uuid4())
             
             # Check for duplicate name
@@ -924,7 +1458,17 @@ def save_ma_scenarios():
 
 @app.route('/api/ma/scenarios', methods=['GET'])
 def get_ma_scenarios():
-    """Get all M&A scenarios for the user"""
+    """Get all M&A scenarios for the user
+    ---
+    tags:
+      - M&A
+    security: []
+    responses:
+      200:
+        description: M&A scenarios listed
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         
@@ -941,7 +1485,24 @@ def get_ma_scenarios():
 
 @app.route('/api/ma/scenarios/<scenario_id>', methods=['DELETE'])
 def delete_ma_scenario(scenario_id):
-    """Delete M&A scenario by ID"""
+    """Delete M&A scenario by ID
+    ---
+    tags:
+      - M&A
+    security: []
+    parameters:
+      - in: path
+        name: scenario_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: M&A scenario deleted
+      404:
+        description: M&A scenario not found
+      500:
+        description: Server error
+    """
     try:
         user = get_or_create_user()
         
@@ -966,7 +1527,17 @@ def delete_ma_scenario(scenario_id):
 # Add WebSocket status endpoint
 @app.route('/api/websocket/status')
 def websocket_status():
-    """Get WebSocket server status"""
+    """Get WebSocket server status
+    ---
+    tags:
+      - WebSocket
+    security: []
+    responses:
+      200:
+        description: WebSocket status
+      500:
+        description: Server error
+    """
     try:
         status = {
             'connected': True,
@@ -981,7 +1552,22 @@ def websocket_status():
 # Add room status endpoint
 @app.route('/api/websocket/room/<room_id>/status')
 def room_status(room_id):
-    """Get room status"""
+    """Get room status
+    ---
+    tags:
+      - WebSocket
+    security: []
+    parameters:
+      - in: path
+        name: room_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Room status
+      500:
+        description: Server error
+    """
     try:
         status = websocket_manager.get_room_status(room_id)
         return jsonify({'success': True, 'data': status})
@@ -991,7 +1577,24 @@ def room_status(room_id):
 # Add user status endpoint
 @app.route('/api/websocket/user/<user_id>/status')
 def user_status(user_id):
-    """Get user status"""
+    """Get user status
+    ---
+    tags:
+      - WebSocket
+    security: []
+    parameters:
+      - in: path
+        name: user_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: User status
+      404:
+        description: User not found
+      500:
+        description: Server error
+    """
     try:
         status = websocket_manager.get_user_status(user_id)
         if status:
@@ -1009,6 +1612,7 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     db.session.rollback()
+    app.logger.error(f"Unhandled error: {error}")
     return jsonify({'error': 'Internal server error'}), 500
 
 # Database initialization
@@ -1020,4 +1624,4 @@ def init_db():
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True, host='0.0.0.0', port=5001) 
+    app.run(debug=True, host='0.0.0.0', port=5001)

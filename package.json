@@ -7,10 +7,16 @@
     "start": "python3 -m http.server 8000",
     "dev": "python3 -m http.server 8000",
     "serve": "python3 -m http.server 8000",
-    "test": "echo \"Open http://localhost:8000?tests to run in-browser tests\"",
+    "test": "vitest",
+    "test:js": "vitest --run",
+    "test:js:ci": "vitest --run --coverage",
+    "test:ui": "playwright test",
+    "test:ui:headed": "playwright test --headed",
+    "test:ui:report": "playwright show-report",
     "build": "echo \"No build step required - pure HTML/CSS/JS\"",
     "lint": "echo \"Consider adding ESLint for JavaScript linting\"",
-    "format": "echo \"Consider adding Prettier for code formatting\""
+    "format": "echo \"Consider adding Prettier for code formatting\"",
+    "postinstall": "npx playwright install --with-deps || true"
   },
   "keywords": [
     "dcf",
@@ -32,7 +38,12 @@
     "url": "https://github.com/your-org/valor-ivx/issues"
   },
   "homepage": "https://github.com/your-org/valor-ivx#readme",
-  "devDependencies": {},
+  "devDependencies": {
+    "vitest": "^1.6.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "jsdom": "^24.0.0",
+    "@playwright/test": "^1.45.0"
+  },
   "dependencies": {},
   "engines": {
     "node": ">=14.0.0"
@@ -42,4 +53,4 @@
     "last 2 versions",
     "not dead"
   ]
-} 
+}

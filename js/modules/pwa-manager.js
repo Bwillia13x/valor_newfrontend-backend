@@ -42,33 +42,47 @@ class PWAManager {
      * Register service worker
      */
     async registerServiceWorker() {
-        if ('serviceWorker' in navigator) {
-            try {
-                const registration = await navigator.serviceWorker.register('/sw.js', {
-                    scope: '/'
-                });
-                
-                this.serviceWorker = registration;
-                console.log('[PWA] Service Worker registered:', registration);
-                
-                // Handle service worker updates
-                registration.addEventListener('updatefound', () => {
-                    const newWorker = registration.installing;
-                    newWorker.addEventListener('statechange', () => {
-                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            this.showUpdateNotification();
-                        }
-                    });
-                });
-                
-                return registration;
-            } catch (error) {
-                console.error('[PWA] Service Worker registration failed:', error);
-                throw error;
-            }
-        } else {
+        if (!('serviceWorker' in navigator)) {
             console.warn('[PWA] Service Worker not supported');
             throw new Error('Service Worker not supported');
+        }
+        try {
+            const registration = await navigator.serviceWorker.register('/sw.js', {
+                scope: '/'
+            });
+
+            // Enable navigation preload for faster SSR/HTML responses where supported
+            if ('navigationPreload' in registration) {
+                try {
+                    await registration.navigationPreload.enable();
+                } catch (e) {
+                    console.warn('[PWA] Navigation preload enable failed:', e);
+                }
+            }
+
+            this.serviceWorker = registration;
+            console.log('[PWA] Service Worker registered:', registration);
+
+            // Handle service worker updates
+            registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                if (!newWorker) return;
+                newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                        this.showUpdateNotification();
+                    }
+                });
+            });
+
+            // Listen for controllerchange to reload to the latest SW
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                console.log('[PWA] Controller changed, new SW in control');
+            });
+
+            return registration;
+        } catch (error) {
+            console.error('[PWA] Service Worker registration failed:', error);
+            throw error;
         }
     }
 
@@ -81,30 +95,38 @@ class PWAManager {
             this.isOnline = true;
             this.onOnline();
         });
-        
+
         window.addEventListener('offline', () => {
             this.isOnline = false;
             this.onOffline();
         });
-        
+
         // Install prompt
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             this.installPrompt = e;
             this.showInstallPrompt();
         });
-        
+
         // App installed
         window.addEventListener('appinstalled', () => {
             this.isInstalled = true;
             this.hideInstallPrompt();
             console.log('[PWA] App installed successfully');
         });
-        
+
         // Visibility change (for background sync)
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 this.onAppVisible();
+            }
+        });
+
+        // Listen for SW messages (version, cache ops)
+        navigator.serviceWorker?.addEventListener('message', (event) => {
+            if (!event.data) return;
+            if (event.data.version) {
+                console.log('[PWA] SW version:', event.data);
             }
         });
     }
@@ -444,7 +466,10 @@ class PWAManager {
         if (this.serviceWorker && this.serviceWorker.waiting) {
             this.serviceWorker.waiting.postMessage({ type: 'SKIP_WAITING' });
         }
-        
+
+        // Ask for current SW version and optionally clear caches
+        navigator.serviceWorker.controller?.postMessage({ type: 'GET_VERSION' });
+
         // Remove update notification
         const notification = document.querySelector('.pwa-update-notification');
         if (notification) {
@@ -549,6 +574,13 @@ class PWAManager {
             syncQueueLength: this.syncQueue.length,
             storageType: this.db ? 'IndexedDB' : 'localStorage'
         };
+    }
+
+    /**
+     * Clear all caches via SW
+     */
+    clearAllCaches() {
+        navigator.serviceWorker.controller?.postMessage({ type: 'CLEAR_CACHES' });
     }
 
     /**

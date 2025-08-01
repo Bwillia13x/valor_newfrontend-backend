@@ -5,10 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Valor IVX — Sample Frontend (Standalone, Improved)</title>
 <link rel="stylesheet" href="./styles.css">
+<meta name="color-scheme" content="light dark" />
+<link rel="prefetch" href="./js/modules/advanced-charting.js" as="script" />
+<link rel="prefetch" href="./js/modules/video-conference.js" as="script" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>
-  <header class="app-header">
+  <header class="app-header" role="banner">
     <div class="brand">
       <div class="logo" aria-hidden="true"></div>
       <div>
@@ -16,42 +19,83 @@
         <small>Standalone DCF + Sensitivity — Improved Frontend</small>
       </div>
     </div>
-    <div class="actions">
-      <button id="presetExample" title="Load sensible demo assumptions"><span class="kbd">P</span>&nbsp;Preset</button>
-      <button id="resetForm">Reset</button>
-      <button id="resetAll" title="Reset all scenarios, notes, and settings">Reset All</button>
-      <button id="runModel" class="primary"><span class="kbd">Enter</span>&nbsp;Run Analysis</button>
-      <button id="exportJSON" title="Export inputs and results as JSON">Export JSON</button>
-      <button id="importJSON" title="Import a JSON run (inputs+result) and apply">Import JSON</button>
-      <button id="sendRun" title="POST run JSON to backend">Send to Backend: Save Run JSON</button>
-      <button id="loadLastRun" title="GET last run from backend and apply">Load Last Run</button>
+    <nav class="actions" role="navigation" aria-label="Main actions">
+      <!-- Primary Actions -->
+      <div class="primary-actions">
+        <button id="runModel" class="primary" aria-describedby="run-help">
+          <span class="kbd">⏎</span>
+          Run Analysis
+        </button>
+        <div id="run-help" class="sr-only">Executes DCF valuation model with current assumptions</div>
+        
+        <button id="presetExample" title="Load demo data" aria-describedby="preset-help">
+          <span class="kbd">P</span>
+          Preset
+        </button>
+        <div id="preset-help" class="sr-only">Loads predefined example values for quick DCF analysis</div>
+      </div>
+      
+      <!-- Secondary Actions -->
+      <div class="secondary-actions">
+<div class="dropdown" id="toolsDropdown">
+  <button class="dropdown-toggle" aria-expanded="false" aria-haspopup="true" tabindex="0">
+    Tools
+    <span class="dropdown-arrow">▾</span>
+  </button>
+  <div class="dropdown-menu" role="menu" hidden>
+    <button id="openSolver" role="menuitem" tabindex="-1">Solver</button>
+    <button id="resetForm" role="menuitem" tabindex="-1">Reset Form</button>
+    <button id="resetAll" role="menuitem" tabindex="-1">Reset All</button>
+  </div>
+</div>
+        
+<div class="dropdown" id="dataDropdown">
+  <button class="dropdown-toggle" aria-expanded="false" aria-haspopup="true" tabindex="0">
+    Data
+    <span class="dropdown-arrow">▾</span>
+  </button>
+  <div class="dropdown-menu" role="menu" hidden>
+    <button id="exportJSON" role="menuitem" tabindex="-1">Export JSON</button>
+    <button id="importJSON" role="menuitem" tabindex="-1">Import JSON</button>
+    <button id="exportCSV" role="menuitem" tabindex="-1">Export CSV</button>
+    <button id="copyLink" role="menuitem" tabindex="-1">Copy Link</button>
+    <div class="dropdown-divider"></div>
+    <button id="sendRun" role="menuitem" tabindex="-1">Save to Backend</button>
+    <button id="loadLastRun" role="menuitem" tabindex="-1">Load from Backend</button>
+  </div>
+</div>
+        
+        <button id="openLBO" class="module-switch">
+          LBO Model
+        </button>
+      </div>
+      
+      <!-- Hidden Elements -->
       <input id="importJSONFile" type="file" accept="application/json" style="display:none" />
-      <button id="exportCSV" title="Export FCFF series as CSV">Export CSV</button>
-      <button id="copyLink" title="Copy sharable link with parameters">Copy Link</button>
-      <button id="openSolver" title="Open implied metric solver">Solver</button>
-      <button id="sendScenarios" title="POST saved scenarios to backend">Send to Backend: Save Scenarios</button>
-      <button id="fetchScenarios" title="GET scenarios from backend and merge">Fetch Scenarios</button>
-      <button id="openLBO" title="Switch to LBO Analysis">LBO Model</button>
-    </div>
+      <div id="reset-help" class="sr-only">Resets current form inputs to default values</div>
+      <div id="reset-all-help" class="sr-only">Clears all data including scenarios, notes, and settings</div>
+      <button id="sendScenarios" style="display:none">Send Scenarios</button>
+      <button id="fetchScenarios" style="display:none">Fetch Scenarios</button>
+    </nav>
   </header>
 
   <main id="main" class="layout">
     <!-- Left: Inputs -->
-    <section class="panel" aria-labelledby="inputsTitle">
-      <h2 id="inputsTitle">Assumptions</h2>
+    <section class="panel" role="region" aria-labelledby="inputsTitle">
+      <h2 id="inputsTitle">Financial Assumptions</h2>
 
       <div class="section">
         <div class="grid">
           <div class="col">
             <label for="ticker">Company / Ticker</label>
-            <input id="ticker" type="text" value="SAMPLE" placeholder="e.g., SAMPLE" title="Company ticker or label" />
+            <input id="ticker" type="text" value="SAMPLE" placeholder="e.g., SAMPLE" title="Company ticker or label" aria-describedby="ticker-hint" />
             <span class="hint">Label only. No network calls in this demo.</span>
           </div>
           <div class="col">
             <label for="revenue">Current Revenue (MM)</label>
             <div class="input-affix">
-              <input id="revenue" type="number" step="0.01" value="500" placeholder="e.g., 500" title="Current revenue in USD millions" />
-              <span class="affix">$MM</span>
+              <input id="revenue" type="number" step="0.01" value="500" placeholder="e.g., 500" title="Current revenue in USD millions" aria-describedby="revenue-unit" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" />
+              <span class="affix" id="revenue-unit" aria-label="Million US Dollars">$MM</span>
             </div>
           </div>
         </div>
@@ -62,26 +106,26 @@
           <div class="col">
             <label for="growthY1">Year 1 Growth %</label>
             <div class="input-affix">
-              <input id="growthY1" type="number" step="0.1" value="12" placeholder="e.g., 12.0" title="Year 1 revenue growth in percent" />
+              <input id="growthY1" type="number" step="0.1" value="12" placeholder="e.g., 12.0" title="Year 1 revenue growth in percent" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" />
               <span class="affix">%</span>
             </div>
           </div>
           <div class="col">
             <label for="growthDecay">Growth Decay (pp/yr)</label>
             <div class="input-affix">
-              <input id="growthDecay" type="number" step="0.1" value="1.5" placeholder="e.g., 1.5" title="Growth decay in percentage points per year" />
+              <input id="growthDecay" type="number" step="0.1" value="1.5" placeholder="e.g., 1.5" title="Growth decay in percentage points per year" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" />
               <span class="affix">pp</span>
             </div>
             <span class="hint">Decline in growth rate per year</span>
           </div>
           <div class="col">
             <label for="years">Projection Years</label>
-            <input id="years" type="number" min="3" max="15" value="7" placeholder="3 to 15" title="Projection period in years" />
+            <input id="years" type="number" min="3" max="15" value="7" placeholder="3 to 15" title="Projection period in years" inputmode="numeric" pattern="[0-9]*" />
           </div>
           <div class="col">
             <label for="termGrowth">Terminal Growth %</label>
             <div class="input-affix">
-              <input id="termGrowth" type="number" step="0.1" value="2.5" placeholder="e.g., 2.5" title="Terminal growth rate in percent" />
+              <input id="termGrowth" type="number" step="0.1" value="2.5" placeholder="e.g., 2.5" title="Terminal growth rate in percent" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" />
               <span class="affix">%</span>
             </div>
           </div>
@@ -106,13 +150,13 @@
           </div>
           <div class="col">
             <label for="salesToCap">Sales-to-Capital</label>
-            <input id="salesToCap" type="number" step="0.01" value="2.5" placeholder="e.g., 2.5" title="Sales-to-Capital ratio" />
+            <input id="salesToCap" type="number" step="0.01" value="2.5" placeholder="e.g., 2.5" title="Sales-to-Capital ratio" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" />
             <span class="hint">Revenue added per $1 new capital (higher = less reinvestment)</span>
           </div>
           <div class="col">
             <label for="wacc">WACC %</label>
             <div class="input-affix">
-              <input id="wacc" type="number" step="0.1" value="9.0" placeholder="e.g., 9.0" title="Weighted Average Cost of Capital in percent" />
+              <input id="wacc" type="number" step="0.1" value="9.0" placeholder="e.g., 9.0" title="Weighted Average Cost of Capital in percent" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" />
               <span class="affix">%</span>
             </div>
           </div>
@@ -143,14 +187,14 @@
           <div class="col">
             <label for="shares">Shares Outstanding (MM)</label>
             <div class="input-affix">
-              <input id="shares" type="number" step="0.01" value="150" placeholder="e.g., 150" title="Shares outstanding in millions" />
+              <input id="shares" type="number" step="0.01" value="150" placeholder="e.g., 150" title="Shares outstanding in millions" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" />
               <span class="affix">MM</span>
             </div>
           </div>
           <div class="col">
             <label for="netDebt">Net Debt (MM)</label>
             <div class="input-affix">
-              <input id="netDebt" type="number" step="0.01" value="300" placeholder="e.g., 300" title="Net debt in USD millions" />
+              <input id="netDebt" type="number" step="0.01" value="300" placeholder="e.g., 300" title="Net debt in USD millions" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" />
               <span class="affix">$MM</span>
             </div>
           </div>
@@ -192,10 +236,8 @@
 
       <div class="section">
         <div class="row">
-          <button id="btnRunLeft" class="primary">Run</button>
-          <button id="btnPresetLeft">Preset</button>
-          <button id="btnResetLeft">Reset</button>
-          <span class="subtle">Tip: Press Enter to run</span>
+          <button id="btnRunLeft" class="primary">Run Analysis</button>
+          <span class="subtle">Press Enter anywhere to run • P for preset data</span>
         </div>
       </div>
 
@@ -302,7 +344,7 @@
         <div class="row" style="margin-top:8px; gap:8px; align-items:center;">
           <span class="subtle">Ramp Preview</span>
         </div>
-        <canvas id="rampPreview" width="800" height="180" aria-label="Ramp preview chart"></canvas>
+        <canvas id="rampPreview" width="800" height="180" aria-label="Multi-stage assumption ramp preview showing projected growth, margins, and metrics over time" role="img" tabindex="0"></canvas>
       </div>
     </section>
 
@@ -361,7 +403,7 @@
             <button id="exportChart" title="Export left chart as PNG">Export PNG</button>
           </div>
           <div class="chart-wrap">
-            <canvas id="fcfChart" width="800" height="300" aria-label="Projected chart"></canvas>
+            <canvas id="fcfChart" width="800" height="300" aria-label="Projected financial chart showing DCF analysis results" role="img" tabindex="0"></canvas>
             <div id="chartTooltip" class="tooltip" role="tooltip" style="display:none"></div>
           </div>
           <div class="row" style="gap:8px; margin-top:6px; flex-wrap:wrap" id="sensi1dControls" hidden>
@@ -404,7 +446,7 @@
             <label class="subtle" for="toggleHistAnn">Show annotations (μ, med, p10, p90)</label>
             <input id="toggleHistAnn" type="checkbox" class="compact" aria-label="Toggle histogram annotations"/>
           </div>
-          <canvas id="mcHist" width="800" height="180" aria-label="Monte Carlo per-share distribution histogram" style="margin-top:8px"></canvas>
+          <canvas id="mcHist" width="800" height="180" aria-label="Monte Carlo simulation histogram showing distribution of per-share valuations" role="img" tabindex="0" style="margin-top:8px"></canvas>
           <div class="legend" id="histLegend" aria-hidden="true" style="display:none">
             <span class="item"><span class="sw" style="background:#72efdd"></span>μ</span>
             <span class="item"><span class="sw" style="background:#cfe3f7"></span>med</span>
@@ -435,7 +477,7 @@
             <span class="pill" id="tvInfoImpliedMultWrap" style="display:none;">Implied EV/FCFF: <strong id="tvInfoImpliedMult">—</strong></span>
             <span class="pill" id="tvInfoImpliedGWrap" style="display:none;">Implied g: <strong id="tvInfoImpliedG">—</strong></span>
           </div>
-          <canvas id="heatmap" width="800" height="300" aria-label="Sensitivity heatmap"></canvas>
+          <canvas id="heatmap" width="800" height="300" aria-label="Sensitivity analysis heatmap showing valuation ranges across different WACC and growth assumptions" role="img" tabindex="0"></canvas>
           <canvas id="tornadoChart" width="800" height="300" aria-label="Tornado chart" style="margin-top:8px; display:none"></canvas>
           <div id="tornadoControls" class="row" style="gap:8px; margin-top:6px; flex-wrap:wrap; display:none">
             <label class="subtle">Tornado Deltas:</label>
@@ -580,6 +622,165 @@
   </main>
 
 <script type="module" src="./js/main.js"></script>
+<script type="module">
+  // Accessible dropdown keyboard handling
+  function wireDropdown(dropdownId) {
+    const root = document.getElementById(dropdownId);
+    if (!root) return;
+    const toggle = root.querySelector('.dropdown-toggle');
+    const menu = root.querySelector('.dropdown-menu');
+    if (!toggle || !menu) return;
+
+    function openMenu() {
+      menu.hidden = false;
+      toggle.setAttribute('aria-expanded', 'true');
+      // set roving tabindex for items
+      const items = menu.querySelectorAll('[role="menuitem"]');
+      items.forEach((el, i) => el.setAttribute('tabindex', i === 0 ? '0' : '-1'));
+      items[0]?.focus();
+    }
+    function closeMenu() {
+      menu.hidden = true;
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.focus();
+    }
+    function isOpen() { return menu.hidden === false; }
+
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      isOpen() ? closeMenu() : openMenu();
+    });
+    toggle.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openMenu();
+      }
+    });
+
+    menu.addEventListener('keydown', (e) => {
+      const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+      const idx = items.indexOf(document.activeElement);
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMenu();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = items[(idx + 1) % items.length];
+        items.forEach(el => el.setAttribute('tabindex', '-1'));
+        next.setAttribute('tabindex', '0');
+        next.focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prev = items[(idx - 1 + items.length) % items.length];
+        items.forEach(el => el.setAttribute('tabindex', '-1'));
+        prev.setAttribute('tabindex', '0');
+        prev.focus();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        items.forEach(el => el.setAttribute('tabindex', '-1'));
+        items[0].setAttribute('tabindex', '0');
+        items[0].focus();
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        items.forEach(el => el.setAttribute('tabindex', '-1'));
+        items[items.length - 1].setAttribute('tabindex', '0');
+        items[items.length - 1].focus();
+      }
+    });
+
+    // close on outside click
+    document.addEventListener('click', (e) => {
+      if (!root.contains(e.target) && isOpen()) closeMenu();
+    });
+  }
+  wireDropdown('toolsDropdown');
+  wireDropdown('dataDropdown');
+</script>
+<script>
+// Header Dropdown functionality
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize dropdown functionality
+  const dropdowns = document.querySelectorAll('.dropdown');
+  
+  dropdowns.forEach(dropdown => {
+    const toggle = dropdown.querySelector('.dropdown-toggle');
+    const menu = dropdown.querySelector('.dropdown-menu');
+    
+    if (toggle && menu) {
+      toggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Close other dropdowns
+        dropdowns.forEach(d => {
+          if (d !== dropdown) {
+            d.setAttribute('aria-expanded', 'false');
+          }
+        });
+        
+        // Toggle current dropdown
+        const isOpen = dropdown.getAttribute('aria-expanded') === 'true';
+        dropdown.setAttribute('aria-expanded', !isOpen);
+        toggle.setAttribute('aria-expanded', !isOpen);
+      });
+    }
+  });
+  
+  // Close dropdowns when clicking outside
+  document.addEventListener('click', () => {
+    dropdowns.forEach(dropdown => {
+      dropdown.setAttribute('aria-expanded', 'false');
+      const toggle = dropdown.querySelector('.dropdown-toggle');
+      if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    });
+  });
+  
+  // Handle keyboard navigation
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      dropdowns.forEach(dropdown => {
+        dropdown.setAttribute('aria-expanded', 'false');
+        const toggle = dropdown.querySelector('.dropdown-toggle');
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+      });
+    }
+  });
+});
+</script>
+<script type="module">
+  // Lazy-load heavy modules after first interaction/idle for performance
+  const lazyModules = [
+    './js/modules/advanced-charting.js',
+    './js/modules/video-conference.js'
+  ];
+  function lazyImport() {
+    lazyModules.forEach((m) => import(m).catch(() => {}));
+    window.removeEventListener('pointerdown', lazyImportOnce);
+    window.removeEventListener('keydown', lazyImportOnce);
+  }
+  function lazyImportOnce() { lazyImport(); }
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(() => lazyImport());
+  } else {
+    setTimeout(() => lazyImport(), 1500);
+  }
+  window.addEventListener('pointerdown', lazyImportOnce, { once: true });
+  window.addEventListener('keydown', lazyImportOnce, { once: true });
+
+  // Long task observer to surface main-thread jank during interactions
+  if ('PerformanceObserver' in window) {
+    try {
+      const po = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (entry.duration > 50) {
+            console.info('[Perf] Long task detected', { duration: entry.duration.toFixed(1) + 'ms' });
+          }
+        }
+      });
+      po.observe({ entryTypes: ['longtask'] });
+    } catch {}
+  }
+</script>
 <script>
   // enable/disable multiple input based on selection
   const tvPerp = document.getElementById("tvPerp");
