@@ -59,7 +59,13 @@ class FieldEncryption:
     def _derive_key(self, password: str) -> bytes:
         """Derive encryption key from password"""
         password_bytes = password.encode()
-        salt = b'valor_ivx_salt_2024'  # In production, use random salt
+        # Use environment variable for salt or generate secure random salt
+        salt_env = os.environ.get('ENCRYPTION_SALT')
+        if salt_env:
+            salt = base64.b64decode(salt_env.encode())
+        else:
+            salt = secrets.token_bytes(32)  # Generate secure random salt
+            print("WARNING: Using generated salt. Set ENCRYPTION_SALT environment variable.")
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,

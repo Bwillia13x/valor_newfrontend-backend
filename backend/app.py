@@ -11,7 +11,7 @@ import json
 import uuid
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 
 from flask import Flask, request, jsonify, send_from_directory, g, make_response, Response
@@ -491,7 +491,7 @@ def index():
 @app.route("/api/health")
 def health_check():
     """Health check endpoint"""
-    return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "1.0.0"})
+    return jsonify({"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat(), "version": "1.0.0"})
 
 
 @app.route("/api/readiness")
@@ -541,7 +541,7 @@ def readiness_check():
 
     all_ok = all(v.get("ok") for v in checks.values())
     status_code = 200 if all_ok else 503
-    return jsonify({"status": "ready" if all_ok else "degraded", "checks": checks, "timestamp": datetime.utcnow().isoformat()}), status_code
+    return jsonify({"status": "ready" if all_ok else "degraded", "checks": checks, "timestamp": datetime.now(timezone.utc).isoformat()}), status_code
 
 
 # Run Management Endpoints
@@ -687,7 +687,7 @@ def save_scenarios():
             if existing:
                 existing.inputs = json.dumps(sc.inputs)
                 existing.mc_settings = json.dumps(sc.mc_settings) if sc.mc_settings else None
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
             else:
                 scenario = Scenario(
                     user_id=user.id,
@@ -877,7 +877,7 @@ def report_dcf():
         # Prepare context
         ctx = {
             "title": f"DCF Report - {run.ticker}",
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "user": {"id": user.id, "username": user.username},
             "run": run.to_dict(),
         }
@@ -916,7 +916,7 @@ def report_lbo():
         # Prepare context
         ctx = {
             "title": f"LBO Report - {lbo_run.company_name}",
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "user": {"id": user.id, "username": user.username},
             "run": lbo_run.to_dict(),
         }
@@ -1045,7 +1045,7 @@ def save_lbo_scenarios():
 
             if existing:
                 existing.inputs = json.dumps(sc.inputs)
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
             else:
                 scenario = LBOScenario(
                     user_id=user.id,
@@ -1159,7 +1159,7 @@ def save_notes(ticker):
 
             note.content = data["content"]
             note.version = int(note.version) + 1
-            note.updated_at = datetime.utcnow()
+            note.updated_at = datetime.now(timezone.utc)
         else:
             note = Note(user_id=user.id, ticker=ticker.upper(), content=data["content"], version=1)
             db.session.add(note)
@@ -1307,7 +1307,7 @@ def save_ma_scenarios():
                 existing.acquirer_name = scenario_data["acquirer_name"]
                 existing.target_name = scenario_data["target_name"]
                 existing.inputs = json.dumps(scenario_data["inputs"])
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
                 db.session.commit()
                 saved_scenarios.append(existing.to_dict())
             else:
