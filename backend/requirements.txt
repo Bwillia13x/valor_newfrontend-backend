@@ -20,6 +20,7 @@ prometheus-client==0.20.0
 flasgger==0.9.7.1
 pydantic==2.7.4
 aiohttp==3.9.1
+psutil==5.9.5
 
 # Phase 9: Advanced Analytics and Machine Learning Dependencies
 numpy==1.24.3
