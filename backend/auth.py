@@ -205,11 +205,33 @@ class AuthManager:
                 'error': 'Please provide a valid email address'
             }
         
-        # Password validation
-        if not password or len(password) < 8:
+        # Enhanced password validation with complexity requirements
+        if not password or len(password) < 12:
             return {
                 'valid': False,
-                'error': 'Password must be at least 8 characters long'
+                'error': 'Password must be at least 12 characters long'
+            }
+        
+        # Character complexity requirements
+        has_lower = bool(re.search(r'[a-z]', password))
+        has_upper = bool(re.search(r'[A-Z]', password))
+        has_digit = bool(re.search(r'\d', password))
+        has_special = bool(re.search(r'[!@#$%^&*()_+=\[\]{}|\\:";\'<>?,./~`-]', password))
+        
+        missing_requirements = []
+        if not has_lower:
+            missing_requirements.append('lowercase letters')
+        if not has_upper:
+            missing_requirements.append('uppercase letters')
+        if not has_digit:
+            missing_requirements.append('numbers')
+        if not has_special:
+            missing_requirements.append('special characters')
+        
+        if missing_requirements:
+            return {
+                'valid': False,
+                'error': f'Password must contain: {", ".join(missing_requirements)}'
             }
         
         # Check for common password patterns
