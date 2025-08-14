@@ -1,0 +1,452 @@
+groups:
+  - name: valor-ivx-alerts
+    rules:
+      # Availability SLO (example target 99.9% over 30d; alert on fast burn proxy)
+      - alert: APIAvailabilityFastBurn
+        expr: |
+          (sum(rate(http_requests_total{status!~"2..|3.."}[5m])) by () / sum(rate(http_requests_total[5m])) by ()) > 0.01
+        for: 10m
+        labels:
+          severity: critical
+          service: valor-ivx
+        annotations:
+          summary: "API availability degradation (fast burn)"
+          description: "Error ratio over last 5m exceeds 1%. Investigate endpoints and recent deploys."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#api-availability-slo-breach"
+
+      # Latency SLO proxies (P95/P99)
+      - alert: APILatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          service: valor-ivx
+        annotations:
+          summary: "API latency P95 elevated"
+          description: "P95 latency exceeds 500ms over 10m window."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#api-latency-slo-breach"
+
+      - alert: APILatencyP99High
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1.0
+        for: 10m
+        labels:
+          severity: critical
+          service: valor-ivx
+        annotations:
+          summary: "API latency P99 elevated"
+          description: "P99 latency exceeds 1s over 10m window."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#api-latency-slo-breach"
+
+      # Health check failing
+      - alert: HealthEndpointFailing
+        expr: |
+          probe_success{job="valor-ivx-health"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: valor-ivx
+        annotations:
+          summary: "Health endpoint failing"
+          description: "Prober indicates /api/health is failing for 5 minutes."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#service-down"
+
+      # Readiness failing
+      - alert: ReadinessDegraded
+        expr: |
+          probe_success{job="valor-ivx-readiness"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: valor-ivx
+        annotations:
+          summary: "Readiness degraded"
+          description: "Readiness probe failing. DB/provider/cache check one or more failing."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#database-connection-issues"
+
+      # Error rate spike
+      - alert: APIErrorRateHigh
+        expr: |
+          sum(rate(http_requests_total{status!~"2..|3.."}[5m])) by () > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: valor-ivx
+        annotations:
+          summary: "High API error rate"
+          description: "Non-2xx/3xx responses exceed 1 req/s over 5 minutes."
+          runbook_url: "https://YOUR_DOCS_HOST/docs/observability/runbooks.md#high-error-rate"
+      # API Availability SLO Alerts
+      - alert: APIAvailabilitySLOBreach
+        expr: rate(http_requests_total{status=~"2..|3.."}[5m]) / rate(http_requests_total[5m]) < 0.999
+        for: 5m
+        labels:
+          severity: critical
+          slo: api_availability
+        annotations:
+          summary: "API Availability SLO breach detected"
+          description: "API availability has dropped below 99.9% for the last 5 minutes"
+          runbook_url: "https://valor-ivx.com/docs/runbooks/api-availability"
+
+      - alert: APIAvailabilitySLOWarning
+        expr: rate(http_requests_total{status=~"2..|3.."}[5m]) / rate(http_requests_total[5m]) < 0.99
+        for: 2m
+        labels:
+          severity: warning
+          slo: api_availability
+        annotations:
+          summary: "API Availability SLO warning"
+          description: "API availability has dropped below 99% for the last 2 minutes"
+
+      # API Latency SLO Alerts
+      - alert: APILatencySLOBreach
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: critical
+          slo: api_latency_p95
+        annotations:
+          summary: "API Latency SLO breach detected"
+          description: "95th percentile API response time exceeds 200ms for the last 5 minutes"
+
+      - alert: APILatencySLOWarning
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          slo: api_latency_p95
+        annotations:
+          summary: "API Latency SLO warning"
+          description: "95th percentile API response time exceeds 100ms for the last 2 minutes"
+
+      # Financial Calculation Accuracy SLO Alerts
+      - alert: FinancialCalculationAccuracySLOBreach
+        expr: rate(financial_calculations_total{status="success"}[1h]) / rate(financial_calculations_total[1h]) < 0.999
+        for: 10m
+        labels:
+          severity: critical
+          slo: financial_calculation_accuracy
+        annotations:
+          summary: "Financial Calculation Accuracy SLO breach detected"
+          description: "Financial calculation accuracy has dropped below 99.9% for the last hour"
+
+      # User Session Success SLO Alerts
+      - alert: UserSessionSuccessSLOBreach
+        expr: rate(active_users[1h]) / (rate(active_users[1h]) + rate(errors_total{error_type="session"}[1h])) < 0.995
+        for: 10m
+        labels:
+          severity: critical
+          slo: user_session_success
+        annotations:
+          summary: "User Session Success SLO breach detected"
+          description: "User session success rate has dropped below 99.5% for the last hour"
+
+      # WebSocket Connection Uptime SLO Alerts
+      - alert: WebSocketConnectionUptimeSLOBreach
+        expr: websocket_connections / (websocket_connections + rate(errors_total{error_type="websocket"}[5m])) < 0.999
+        for: 5m
+        labels:
+          severity: critical
+          slo: websocket_connection_uptime
+        annotations:
+          summary: "WebSocket Connection Uptime SLO breach detected"
+          description: "WebSocket connection uptime has dropped below 99.9% for the last 5 minutes"
+
+  - name: valor-ivx-system-health
+    rules:
+      # High Error Rate Alerts
+      - alert: HighErrorRate
+        expr: rate(errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          category: errors
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate exceeds 0.1 errors per second for the last 2 minutes"
+
+      - alert: ErrorRateSpike
+        expr: rate(errors_total[1m]) > rate(errors_total[5m]) * 3
+        for: 1m
+        labels:
+          severity: warning
+          category: errors
+        annotations:
+          summary: "Error rate spike detected"
+          description: "Error rate has spiked to 3x the 5-minute average"
+
+      # High Response Time Alerts
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time exceeds 1 second for the last 2 minutes"
+
+      - alert: ResponseTimeSpike
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[1m])) > histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) * 2
+        for: 1m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "Response time spike detected"
+          description: "Response time has spiked to 2x the 5-minute average"
+
+  - name: valor-ivx-resource-usage
+    rules:
+      # CPU Usage Alerts
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage exceeds 80% for the last 5 minutes"
+
+      - alert: CriticalCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 2m
+        labels:
+          severity: critical
+          category: resources
+        annotations:
+          summary: "Critical CPU usage detected"
+          description: "CPU usage exceeds 90% for the last 2 minutes"
+
+      # Memory Usage Alerts
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage exceeds 80% for the last 5 minutes"
+
+      - alert: CriticalMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 90
+        for: 2m
+        labels:
+          severity: critical
+          category: resources
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Memory usage exceeds 90% for the last 2 minutes"
+
+      # Disk Usage Alerts
+      - alert: HighDiskUsage
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "High disk usage detected"
+          description: "Disk usage exceeds 80% for the last 5 minutes"
+
+      - alert: CriticalDiskUsage
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 90
+        for: 2m
+        labels:
+          severity: critical
+          category: resources
+        annotations:
+          summary: "Critical disk usage detected"
+          description: "Disk usage exceeds 90% for the last 2 minutes"
+
+  - name: valor-ivx-business-metrics
+    rules:
+      # Financial Calculation Performance Alerts
+      - alert: SlowFinancialCalculations
+        expr: rate(financial_calculation_duration_seconds_sum[5m]) / rate(financial_calculation_duration_seconds_count[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "Slow financial calculations detected"
+          description: "Average financial calculation duration exceeds 5 seconds for the last 2 minutes"
+
+      - alert: FinancialCalculationFailures
+        expr: rate(financial_calculations_total{status="error"}[5m]) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          category: business
+        annotations:
+          summary: "Financial calculation failures detected"
+          description: "Financial calculation error rate exceeds 1% for the last 2 minutes"
+
+      # Cache Performance Alerts
+      - alert: LowCacheHitRatio
+        expr: rate(cache_hits_total[5m]) / (rate(cache_hits_total[5m]) + rate(cache_misses_total[5m])) < 0.8
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "Low cache hit ratio detected"
+          description: "Cache hit ratio has dropped below 80% for the last 5 minutes"
+
+      # User Activity Alerts
+      - alert: NoActiveUsers
+        expr: active_users == 0
+        for: 10m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "No active users detected"
+          description: "No active users for the last 10 minutes"
+
+      - alert: WebSocketConnectionDrop
+        expr: websocket_connections == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: business
+        annotations:
+          summary: "No WebSocket connections detected"
+          description: "No WebSocket connections for the last 2 minutes"
+
+  - name: valor-ivx-external-dependencies
+    rules:
+      # External API Health Alerts
+      - alert: ExternalAPIDown
+        expr: up{job="external-api-health"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: external
+        annotations:
+          summary: "External API is down"
+          description: "External API health check is failing"
+
+      - alert: ExternalAPISlow
+        expr: http_request_duration_seconds{job="external-api-health"} > 5
+        for: 2m
+        labels:
+          severity: warning
+          category: external
+        annotations:
+          summary: "External API is slow"
+          description: "External API response time exceeds 5 seconds"
+
+      # Database Health Alerts
+      - alert: DatabaseConnectionIssues
+        expr: rate(errors_total{error_type="database"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "Database connection issues detected"
+          description: "Database errors are occurring"
+
+      # Redis Health Alerts
+      - alert: RedisConnectionIssues
+        expr: rate(errors_total{error_type="redis"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: cache
+        annotations:
+          summary: "Redis connection issues detected"
+          description: "Redis errors are occurring"
+
+  - name: valor-ivx-security
+    rules:
+      # Security Alerts
+      - alert: HighRateLimitViolations
+        expr: rate(errors_total{error_type="rate_limit"}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "High rate limit violations detected"
+          description: "Rate limit violations exceed 0.1 per second for the last 2 minutes"
+
+      - alert: AuthenticationFailures
+        expr: rate(errors_total{error_type="authentication"}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "High authentication failure rate detected"
+          description: "Authentication failures exceed 0.05 per second for the last 2 minutes"
+
+      - alert: AuthorizationFailures
+        expr: rate(errors_total{error_type="authorization"}[5m]) > 0.01
+        for: 2m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "High authorization failure rate detected"
+          description: "Authorization failures exceed 0.01 per second for the last 2 minutes"
+
+  - name: valor-ivx-availability
+    rules:
+      # Service Availability Alerts
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Service is down"
+          description: "Service health check is failing"
+
+      - alert: ServiceDegraded
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: warning
+          category: availability
+        annotations:
+          summary: "Service is degraded"
+          description: "Service health check is failing intermittently"
+
+      # Health Check Alerts
+      - alert: HealthCheckFailing
+        expr: http_requests_total{endpoint="/health"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Health check endpoint is not responding"
+          description: "Health check endpoint has not received requests for 2 minutes"
+
+      # Readiness Probe Alerts
+      - alert: ReadinessProbeFailing
+        expr: http_requests_total{endpoint="/health/ready", status!~"2.."} > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Readiness probe is failing"
+          description: "Readiness probe is returning non-2xx status codes"
+
+      # Liveness Probe Alerts
+      - alert: LivenessProbeFailing
+        expr: http_requests_total{endpoint="/health/live", status!~"2.."} > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Liveness probe is failing"
+          description: "Liveness probe is returning non-2xx status codes"

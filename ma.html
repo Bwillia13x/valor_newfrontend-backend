@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Valor IVX - M&A Analysis</title>
+    <link rel="stylesheet" href="styles.css">
+    <meta name="color-scheme" content="light dark" />
+    <link rel="prefetch" href="./js/modules/advanced-charting.js" as="script" />
+    <link rel="prefetch" href="./js/modules/video-conference.js" as="script" />
+</head>
+<body>
+    <div class="ma-container">
+        <header class="panel">
+            <h1>M&A Analysis</h1>
+            <p class="muted">Comprehensive merger and acquisition modeling with accretion/dilution analysis</p>
+        </header>
+
+        <div class="layout">
+            <!-- Acquirer Information -->
+            <div class="panel">
+                <h3>Acquirer Information</h3>
+                <div class="col">
+                    <label for="acquirer-revenue">Revenue (MM)</label>
+                    <div class="input-affix">
+                        <input type="number" id="acquirer-revenue" value="1000" step="0.1" inputmode="decimal">
+                        <span class="affix">$MM</span>
+                    </div>
+                </div>
+                <div class="col">
+                    <label for="acquirer-ebitda">EBITDA (MM)</label>
+                    <div class="input-affix">
+                        <input type="number" id="acquirer-ebitda" value="150" step="0.1" inputmode="decimal">
+                        <span class="affix">$MM</span>
+                    </div>
+                </div>
+                <div class="col">
+                    <label for="acquirer-shares">Shares Outstanding (MM)</label>
+                    <div class="input-affix">
+                        <input type="number" id="acquirer-shares" value="100" step="0.1" inputmode="decimal">
+                        <span class="affix">MM</span>
+                    </div>
+                </div>
+                <div class="col">
+                    <label for="acquirer-net-debt">Net Debt (MM)</label>
+                    <div class="input-affix">
+                        <input type="number" id="acquirer-net-debt" value="200" step="0.1" inputmode="decimal">
+                        <span class="affix">$MM</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Target Information -->
+            <div class="panel">
+                <h3>Target Information</h3>
+                <div class="ma-input-group">
+                    <label for="target-revenue">Revenue ($M)</label>
+                    <input type="number" id="target-revenue" value="500" step="0.1">
+                </div>
+                <div class="ma-input-group">
+                    <label for="target-ebitda">EBITDA ($M)</label>
+                    <input type="number" id="target-ebitda" value="75" step="0.1">
+                </div>
+                <div class="ma-input-group">
+                    <label for="target-shares">Shares Outstanding (M)</label>
+                    <input type="number" id="target-shares" value="50" step="0.1">
+                </div>
+                <div class="ma-input-group">
+                    <label for="target-net-debt">Net Debt ($M)</label>
+                    <input type="number" id="target-net-debt" value="100" step="0.1">
+                </div>
+            </div>
+
+            <!-- Deal Structure -->
+            <div class="panel">
+                <h3>Deal Structure</h3>
+                <div class="ma-input-group">
+                    <label for="purchase-price">Purchase Price ($M)</label>
+                    <input type="number" id="purchase-price" value="600" step="0.1">
+                </div>
+                <div class="ma-input-group">
+                    <label for="deal-cash">Cash (%)</label>
+                    <input type="number" id="deal-cash" value="60" min="0" max="100" step="1">
+                </div>
+                <div class="ma-input-group">
+                    <label for="deal-stock">Stock (%)</label>
+                    <input type="number" id="deal-stock" value="40" min="0" max="100" step="1">
+                </div>
+            </div>
+
+            <!-- Synergies -->
+            <div class="panel">
+                <h3>Synergies</h3>
+                <div class="ma-input-group">
+                    <label for="synergies-annual">Annual Synergies ($M)</label>
+                    <input type="number" id="synergies-annual" value="25" step="0.1">
+                </div>
+                <div class="ma-input-group">
+                    <label for="synergies-duration">Duration (Years)</label>
+                    <input type="number" id="synergies-duration" value="5" min="1" max="20" step="1">
+                </div>
+                <div class="ma-input-group">
+                    <label for="synergies-type">Synergy Type</label>
+                    <select id="synergies-type">
+                        <option value="cost">Cost Synergies</option>
+                        <option value="revenue">Revenue Synergies</option>
+                        <option value="mixed">Mixed</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="row" style="gap: var(--space-2); margin-top: var(--space-4);">
+            <button class="btn primary" id="run-ma-analysis">Run M&A Analysis</button>
+            <button class="btn" id="reset-ma">Reset</button>
+            <button class="btn" id="export-ma">Export Results</button>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-container" id="ma-progress" style="display: none; margin: var(--space-4) 0;">
+            <div class="progress-bar">
+                <div class="progress-fill" id="ma-progress-fill"></div>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div class="panel" id="ma-results-section" style="display: none; margin-top: var(--space-4);">
+            <h2>Analysis Results</h2>
+            
+            <!-- Pro Forma Results -->
+            <h3>Pro Forma Financials</h3>
+            <div class="outputs">
+                <div class="metric">
+                    <div class="k">Pro Forma Revenue</div>
+                    <div class="v" id="ma-proforma-revenue">$0M</div>
+                </div>
+                <div class="metric">
+                    <div class="k">Pro Forma EBITDA</div>
+                    <div class="v" id="ma-proforma-ebitda">$0M</div>
+                </div>
+                <div class="metric">
+                    <div class="k">Pro Forma EPS</div>
+                    <div class="v" id="ma-proforma-eps">$0</div>
+                </div>
+                <div class="metric">
+                    <div class="k">Pro Forma Shares</div>
+                    <div class="v" id="ma-proforma-shares">0M</div>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+            <!-- Accretion/Dilution -->
+            <h3>Accretion/Dilution Analysis</h3>
+            <div class="outputs">
+                <div class="metric">
+                    <div class="k">Accretion/Dilution</div>
+                    <div class="v" id="ma-accretion-dilution">0%</div>
+                </div>
+                <div class="metric">
+                    <div class="k">Target Contribution</div>
+                    <div class="v" id="ma-target-contribution">$0</div>
+                </div>
+                <div class="metric">
+                    <div class="k">Synergy Contribution</div>
+                    <div class="v" id="ma-synergy-contribution">$0</div>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+            <!-- Deal Metrics -->
+            <h3>Deal Metrics</h3>
+            <div class="outputs">
+                <div class="metric">
+                    <div class="k">EV/EBITDA Multiple</div>
+                    <div class="v" id="ma-ev-ebitda">0.0x</div>
+                </div>
+                <div class="metric">
+                    <div class="k">EV/Revenue Multiple</div>
+                    <div class="v" id="ma-ev-revenue">0.0x</div>
+                </div>
+                <div class="metric">
+                    <div class="k">ROIC</div>
+                    <div class="v" id="ma-roic">0%</div>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+            <!-- Synergies -->
+            <h3>Synergy Analysis</h3>
+            <div class="outputs">
+                <div class="metric">
+                    <div class="k">PV of Synergies</div>
+                    <div class="v" id="ma-synergies-pv">$0M</div>
+                </div>
+                <div class="metric">
+                    <div class="k">Synergies per Share</div>
+                    <div class="v" id="ma-synergies-per-share">$0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="charts" id="ma-charts-section" style="display: none; margin-top: var(--space-4);">
+            <div class="panel">
+                <h3>Accretion/Dilution Analysis</h3>
+                <div class="chart-wrap">
+                    <canvas id="ma-accretion-chart" width="400" height="300"></canvas>
+                </div>
+            </div>
+            <div class="panel">
+                <h3>Pro Forma Comparison</h3>
+                <div class="chart-wrap">
+                    <canvas id="ma-proforma-chart" width="400" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { maEngine } from './js/modules/ma-engine.js';
+        import { $, fmt } from './js/modules/utils.js';
+        import { setupSWUpdateBanner } from './js/modules/sw-update.js';
+        setupSWUpdateBanner();
+
+        // Lazy-load heavy modules after first interaction/idle for performance
+        const lazyModules = [
+          './js/modules/advanced-charting.js',
+          './js/modules/video-conference.js'
+        ];
+        function lazyImport() {
+          lazyModules.forEach((m) => import(m).catch(() => {}));
+          window.removeEventListener('pointerdown', lazyImportOnce);
+          window.removeEventListener('keydown', lazyImportOnce);
+        }
+        function lazyImportOnce() { lazyImport(); }
+        if ('requestIdleCallback' in window) {
+          requestIdleCallback(() => lazyImport());
+        } else {
+          setTimeout(() => lazyImport(), 1500);
+        }
+        window.addEventListener('pointerdown', lazyImportOnce, { once: true });
+        window.addEventListener('keydown', lazyImportOnce, { once: true });
+
+        // Long task observer
+        if ('PerformanceObserver' in window) {
+          try {
+            const po = new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) {
+                if (entry.duration > 50) {
+                  console.info('[Perf] Long task detected', { duration: entry.duration.toFixed(1) + 'ms' });
+                }
+              }
+            });
+            po.observe({ entryTypes: ['longtask'] });
+          } catch {}
+        }
+
+        // Initialize M&A analysis
+        function initializeMA() {
+            // Set up event listeners
+            $('#run-ma-analysis').addEventListener('click', runMAAnalysis);
+            $('#reset-ma').addEventListener('click', resetMA);
+            $('#export-ma').addEventListener('click', exportMAResults);
+
+            // Set up input validation
+            setupInputValidation();
+        }
+
+        // Run M&A analysis
+        async function runMAAnalysis() {
+            try {
+                // Show progress
+                $('#ma-progress').style.display = 'block';
+                $('#ma-progress-fill').style.width = '0%';
+
+                // Get input parameters
+                const params = getMAInputs();
+
+                // Run analysis
+                const results = await maEngine.runAnalysis(params);
+
+                // Update UI
+                maEngine.updateUI();
+                $('#ma-results-section').style.display = 'block';
+                $('#ma-charts-section').style.display = 'block';
+
+                // Hide progress
+                $('#ma-progress').style.display = 'none';
+
+                console.log('M&A Analysis completed:', results);
+
+            } catch (error) {
+                console.error('M&A Analysis error:', error);
+                alert('Error running M&A analysis: ' + error.message);
+                $('#ma-progress').style.display = 'none';
+            }
+        }
+
+        // Get M&A inputs
+        function getMAInputs() {
+            return {
+                acquirerRevenue: parseFloat($('#acquirer-revenue').value),
+                acquirerEBITDA: parseFloat($('#acquirer-ebitda').value),
+                acquirerShares: parseFloat($('#acquirer-shares').value),
+                acquirerNetDebt: parseFloat($('#acquirer-net-debt').value),
+                targetRevenue: parseFloat($('#target-revenue').value),
+                targetEBITDA: parseFloat($('#target-ebitda').value),
+                targetShares: parseFloat($('#target-shares').value),
+                targetNetDebt: parseFloat($('#target-net-debt').value),
+                purchasePrice: parseFloat($('#purchase-price').value),
+                dealStructure: {
+                    cash: parseFloat($('#deal-cash').value),
+                    stock: parseFloat($('#deal-stock').value)
+                },
+                synergies: {
+                    annual: parseFloat($('#synergies-annual').value),
+                    duration: parseInt($('#synergies-duration').value),
+                    type: $('#synergies-type').value
+                }
+            };
+        }
+
+        // Reset M&A form
+        function resetMA() {
+            const inputs = document.querySelectorAll('.ma-section input');
+            inputs.forEach(input => {
+                if (input.id === 'acquirer-revenue') input.value = '1000';
+                else if (input.id === 'acquirer-ebitda') input.value = '150';
+                else if (input.id === 'acquirer-shares') input.value = '100';
+                else if (input.id === 'acquirer-net-debt') input.value = '200';
+                else if (input.id === 'target-revenue') input.value = '500';
+                else if (input.id === 'target-ebitda') input.value = '75';
+                else if (input.id === 'target-shares') input.value = '50';
+                else if (input.id === 'target-net-debt') input.value = '100';
+                else if (input.id === 'purchase-price') input.value = '600';
+                else if (input.id === 'deal-cash') input.value = '60';
+                else if (input.id === 'deal-stock') input.value = '40';
+                else if (input.id === 'synergies-annual') input.value = '25';
+                else if (input.id === 'synergies-duration') input.value = '5';
+            });
+
+            $('#ma-results-section').style.display = 'none';
+            $('#ma-charts-section').style.display = 'none';
+        }
+
+        // Export M&A results
+        function exportMAResults() {
+            try {
+                const results = maEngine.exportResults();
+                const blob = new Blob([results], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ma-analysis-results.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                alert('No results to export. Please run an analysis first.');
+            }
+        }
+
+        // Setup input validation
+        function setupInputValidation() {
+            // Deal structure validation
+            $('#deal-cash').addEventListener('input', validateDealStructure);
+            $('#deal-stock').addEventListener('input', validateDealStructure);
+        }
+
+        // Validate deal structure
+        function validateDealStructure() {
+            const cash = parseFloat($('#deal-cash').value) || 0;
+            const stock = parseFloat($('#deal-stock').value) || 0;
+            
+            if (cash + stock !== 100) {
+                $('#deal-stock').style.borderColor = 'var(--accent-error)';
+            } else {
+                $('#deal-stock').style.borderColor = 'var(--border-subtle)';
+            }
+        }
+
+        // Initialize when DOM is loaded
+        document.addEventListener('DOMContentLoaded', initializeMA);
+    </script>
+</body>
+</html>

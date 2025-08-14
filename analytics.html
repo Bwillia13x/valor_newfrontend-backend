@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics Dashboard - Valor IVX</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Analytics Dashboard</h1>
+        <nav>
+            <a href="index.html">Home</a>
+            <a href="lbo.html">LBO</a>
+            <a href="ma.html">M&A</a>
+            <a href="real-options.html">Real Options</a>
+        </nav>
+    </header>
+
+    <main>
+        <section id="analytics-controls">
+            <h2>Model Controls</h2>
+            <div class="control-group">
+                <label for="analytics-model-selector">Select Model:</label>
+                <select id="analytics-model-selector"></select>
+            </div>
+            <button id="analytics-predict-button" class="button">Run Prediction</button>
+        </section>
+
+        <section id="analytics-results">
+            <h2>Results</h2>
+            <div id="analytics-results-container">
+                <p>Results will be displayed here.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Valor IVX. All rights reserved.</p>
+    </footer>
+
+    <script type="module" src="js/modules/analytics-dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Valor IVX — Financial Analysis Platform</title>
+<link rel="stylesheet" href="./css/main.css">
+<link rel="stylesheet" href="./css/components.css">
+<link rel="stylesheet" href="./css/modules.css">
+<meta name="color-scheme" content="light dark" />
+<link rel="prefetch" href="./js/modules/advanced-charting.js" as="script" />
+<link rel="prefetch" href="./js/modules/video-conference.js" as="script" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  
+  <!-- Unified Shell Header -->
+  <header class="shell-header" role="banner">
+    <div class="shell-brand">
+      <div class="shell-logo" aria-hidden="true"></div>
+      <div class="shell-title">
+        <h1>Valor IVX</h1>
+        <small>Financial Analysis Platform</small>
+      </div>
+    </div>
+    
+    <!-- Primary Navigation -->
+    <nav class="shell-nav" role="navigation" aria-label="Main navigation">
+      <button class="nav-item active" data-module="dcf" aria-current="page">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">DCF</span>
+      </button>
+      <button class="nav-item" data-module="lbo">
+        <span class="nav-icon">🏢</span>
+        <span class="nav-label">LBO</span>
+      </button>
+      <button class="nav-item" data-module="ma">
+        <span class="nav-icon">🤝</span>
+        <span class="nav-label">M&A</span>
+      </button>
+      <button class="nav-item" data-module="real-options">
+        <span class="nav-icon">⚡</span>
+        <span class="nav-label">Real Options</span>
+      </button>
+    </nav>
+    
+    <!-- Essential Actions -->
+    <div class="shell-actions">
+      <button id="runAnalysis" class="primary-action" aria-describedby="run-help">
+        <span class="action-icon">▶</span>
+        <span class="action-label">Run Analysis</span>
+        <span class="action-hint">⏎</span>
+      </button>
+      <div id="run-help" class="sr-only">Executes financial analysis with current assumptions</div>
+    </div>
+  </header>
+
+  <!-- Unified Content Shell -->
+  <main id="main" class="shell-main">
+    <!-- Loading State -->
+    <div id="shell-loading" class="shell-loading" aria-hidden="true">
+      <div class="loading-indicator">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Preparing analysis...</div>
+      </div>
+    </div>
+    
+    <!-- Module Container -->
+    <div id="shell-content" class="shell-content">
+      <!-- DCF Module (loaded by default) -->
+      <div id="dcf-module" class="module" data-module="dcf" aria-labelledby="dcf-title">
+        <div class="module-layout">
+          <!-- Input Panel -->
+          <section class="input-panel" role="region" aria-labelledby="dcf-inputs-title">
+            <div class="panel-header">
+              <h2 id="dcf-inputs-title">Financial Assumptions</h2>
+              <div class="panel-status">
+                <span class="status-indicator" id="input-status">Ready</span>
+              </div>
+            </div>
+            
+            <!-- Progressive Disclosure Sections -->
+            <div class="assumption-sections">
+              <!-- Core Assumptions - Always Visible -->
+              <div class="section core-section" data-section="core">
+                <div class="section-header">
+                  <h3 class="section-title">Core Assumptions</h3>
+                  <span class="section-hint">Essential parameters for DCF analysis</span>
+                </div>
+                <div class="section-content">
+                  <div class="input-grid">
+                    <div class="input-group">
+                      <label for="ticker" class="input-label">Company</label>
+                      <input id="ticker" type="text" value="SAMPLE" placeholder="Company ticker" class="input-field" />
+                    </div>
+                    <div class="input-group">
+                      <label for="revenue" class="input-label">Current Revenue</label>
+                      <div class="input-with-unit">
+                        <input id="revenue" type="number" step="0.01" value="500" placeholder="500" class="input-field" />
+                        <span class="input-unit">$MM</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="input-grid">
+                    <div class="input-group">
+                      <label for="growthY1" class="input-label">Year 1 Growth</label>
+                      <div class="input-with-unit">
+                        <input id="growthY1" type="number" step="0.1" value="12" class="input-field" />
+                        <span class="input-unit">%</span>
+                      </div>
+                    </div>
+                    <div class="input-group">
+                      <label for="termGrowth" class="input-label">Terminal Growth</label>
+                      <div class="input-with-unit">
+                        <input id="termGrowth" type="number" step="0.1" value="2.5" class="input-field" />
+                        <span class="input-unit">%</span>
+                      </div>
+                    </div>
+                    <div class="input-group">
+                      <label for="wacc" class="input-label">WACC</label>
+                      <div class="input-with-unit">
+                        <input id="wacc" type="number" step="0.1" value="9.0" class="input-field" />
+                        <span class="input-unit">%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Advanced Parameters - Collapsible -->
+              <div class="section collapsible-section" data-section="advanced">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="false">
+                  <h3 class="section-title">Advanced Parameters</h3>
+                  <span class="section-hint">Detailed modeling assumptions</span>
+                  <span class="expand-icon">⌄</span>
+                </div>
+                <div class="section-content" aria-hidden="true">
+                  <div class="input-grid">
+                    <div class="input-group">
+                      <label for="ebitMargin" class="input-label">EBIT Margin</label>
+                      <div class="input-with-unit">
+                        <input id="ebitMargin" type="number" step="0.1" value="22" class="input-field" />
+                        <span class="input-unit">%</span>
+                      </div>
+                    </div>
+                    <div class="input-group">
+                      <label for="taxRate" class="input-label">Tax Rate</label>
+                      <div class="input-with-unit">
+                        <input id="taxRate" type="number" step="0.1" value="23" class="input-field" />
+                        <span class="input-unit">%</span>
+                      </div>
+                    </div>
+                    <div class="input-group">
+                      <label for="salesToCap" class="input-label">Sales-to-Capital</label>
+                      <input id="salesToCap" type="number" step="0.01" value="2.5" class="input-field" />
+                      <span class="input-hint">Revenue per $1 new capital</span>
+                    </div>
+                  </div>
+                  
+                  <div class="input-grid">
+                    <div class="input-group">
+                      <label for="shares" class="input-label">Shares Outstanding</label>
+                      <div class="input-with-unit">
+                        <input id="shares" type="number" step="0.01" value="150" class="input-field" />
+                        <span class="input-unit">MM</span>
+                      </div>
+                    </div>
+                    <div class="input-group">
+                      <label for="netDebt" class="input-label">Net Debt</label>
+                      <div class="input-with-unit">
+                        <input id="netDebt" type="number" step="0.01" value="300" class="input-field" />
+                        <span class="input-unit">$MM</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Sensitivity Analysis - Collapsible -->
+              <div class="section collapsible-section" data-section="sensitivity">
+                <div class="section-header" role="button" tabindex="0" aria-expanded="false">
+                  <h3 class="section-title">Sensitivity Analysis</h3>
+                  <span class="section-hint">Range testing parameters</span>
+                  <span class="expand-icon">⌄</span>
+                </div>
+                <div class="section-content" aria-hidden="true">
+                  <div class="input-grid">
+                    <div class="input-group">
+                      <label for="waccMin" class="input-label">WACC Range Min</label>
+                      <div class="input-with-unit">
+                        <input id="waccMin" type="number" step="0.1" value="7" class="input-field" />
+                        <span class="input-unit">%</span>
+                      </div>
+                    </div>
+                    <div class="input-group">
+                      <label for="waccMax" class="input-label">WACC Range Max</label>
+                      <div class="input-with-unit">
+                        <input id="waccMax" type="number" step="0.1" value="12" class="input-field" />
+                        <span class="input-unit">%</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="input-grid">
+                    <div class="input-group">
+                      <label for="tgMin" class="input-label">Growth Range Min</label>
+                      <div class="input-with-unit">
+                        <input id="tgMin" type="number" step="0.1" value="1.0" class="input-field" />
+                        <span class="input-unit">%</span>
+                      </div>
+                    </div>
+                    <div class="input-group">
+                      <label for="tgMax" class="input-label">Growth Range Max</label>
+                      <div class="input-with-unit">
+                        <input id="tgMax" type="number" step="0.1" value="3.5" class="input-field" />
+                        <span class="input-unit">%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Action Panel -->
+            <div class="action-panel">
+              <button id="runModelButton" class="primary-button">
+                <span class="button-icon">▶</span>
+                <span class="button-text">Run DCF Analysis</span>
+              </button>
+              <div class="action-hints">
+                <span class="hint">Press Enter anywhere to run</span>
+                <span class="hint">P for preset data</span>
+              </div>
+            </div>
+          </section>
+          
+          <!-- Output Panel -->
+          <section class="output-panel" role="region" aria-labelledby="dcf-outputs-title">
+            <div class="panel-header">
+              <h2 id="dcf-outputs-title">Valuation Results</h2>
+              <div class="panel-status">
+                <span class="status-indicator" id="output-status">Idle</span>
+              </div>
+            </div>
+            
+            <!-- Key Metrics - Primary Focus -->
+            <div class="key-metrics">
+              <div class="metric primary-metric">
+                <div class="metric-label">Per Share Value</div>
+                <div class="metric-value" id="psVal">—</div>
+                <div class="metric-unit">USD</div>
+              </div>
+              
+              <div class="metrics-secondary">
+                <div class="metric">
+                  <div class="metric-label">Enterprise Value</div>
+                  <div class="metric-value" id="evVal">—</div>
+                </div>
+                <div class="metric">
+                  <div class="metric-label">Equity Value</div>
+                  <div class="metric-value" id="eqVal">—</div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Charts - The Visual Story -->
+            <div class="chart-narrative">
+              <div class="chart-section">
+                <div class="chart-header">
+                  <h3 class="chart-title">Free Cash Flow Projection</h3>
+                  <div class="chart-controls">
+                    <button class="chart-tab active" data-chart="fcf">FCFF</button>
+                    <button class="chart-tab" data-chart="revenue">Revenue</button>
+                    <button class="chart-tab" data-chart="sensitivity">Sensitivity</button>
+                  </div>
+                </div>
+                <div class="chart-container">
+                  <canvas id="primaryChart" width="800" height="300" aria-label="Primary financial chart" role="img"></canvas>
+                  <div id="chartTooltip" class="chart-tooltip" style="display:none"></div>
+                </div>
+              </div>
+              
+              <div class="chart-section">
+                <div class="chart-header">
+                  <h3 class="chart-title">Sensitivity Analysis</h3>
+                  <div class="chart-summary">WACC vs Terminal Growth</div>
+                </div>
+                <div class="chart-container">
+                  <canvas id="sensitivityChart" width="800" height="300" aria-label="Sensitivity heatmap" role="img"></canvas>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+      
+      <!-- Other modules will be loaded dynamically -->
+      <div id="lbo-module" class="module" data-module="lbo" style="display: none;">
+        <div class="module-placeholder">
+          <h2>LBO Module</h2>
+          <p>Leveraged Buyout analysis interface will be loaded here</p>
+        </div>
+      </div>
+      
+      <div id="ma-module" class="module" data-module="ma" style="display: none;">
+        <div class="module-placeholder">
+          <h2>M&A Module</h2>
+          <p>Mergers & Acquisitions analysis interface will be loaded here</p>
+        </div>
+      </div>
+      
+      <div id="real-options-module" class="module" data-module="real-options" style="display: none;">
+        <div class="module-placeholder">
+          <h2>Real Options Module</h2>
+          <p>Real Options analysis interface will be loaded here</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Unified SPA Router and Core Scripts -->
+  <script type="module" src="./js/shell.js"></script>
+  <script type="module" src="./js/modules/dcf-core.js"></script>
+</body>
+</html>

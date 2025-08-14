@@ -1,0 +1,10 @@
+ruff==0.1.6
+black==23.12.1
+mypy==1.8.0
+bandit==1.7.5
+flasgger==0.9.7.1
+pydantic==2.5.2
+# [P5] perf/dev tooling
+locust==2.29.1
+numpy==2.0.1
+pyinstrument==4.6.2

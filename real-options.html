@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Valor IVX - Real Options Analysis</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .real-options-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+
+        .header p {
+            margin: 10px 0 0 0;
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .left-panel {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .right-panel {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .option-type-selector {
+            margin-bottom: 25px;
+        }
+
+        .option-type-selector h3 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.3em;
+        }
+
+        .option-type-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .option-type-btn {
+            padding: 12px 20px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            color: #333;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .option-type-btn:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .option-type-btn.active {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+
+        .parameter-form {
+            margin-bottom: 25px;
+        }
+
+        .parameter-form h3 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 1.3em;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .scenario-selector {
+            margin-bottom: 25px;
+        }
+
+        .scenario-selector h3 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.3em;
+        }
+
+        .scenario-dropdown {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .calculate-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+
+        .calculate-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .calculate-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .results-section {
+            margin-bottom: 25px;
+        }
+
+        .results-section h3 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 1.3em;
+        }
+
+        .results-summary {
+            background: #f8f9ff;
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-item {
+            margin-bottom: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .result-item strong {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .greeks-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .greeks-section h4 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .timing-recommendation {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .timing-recommendation h4 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .charts-section {
+            margin-top: 30px;
+        }
+
+        .charts-section h3 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 1.3em;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .chart-container h4 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .chart-canvas {
+            width: 100%;
+            height: 300px;
+            position: relative;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error-message {
+            background: #ffe6e6;
+            color: #d63031;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 4px solid #d63031;
+        }
+
+        .success-message {
+            background: #e6ffe6;
+            color: #00b894;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 4px solid #00b894;
+        }
+
+        .sensitivity-controls {
+            margin-bottom: 20px;
+        }
+
+        .sensitivity-controls h4 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .sensitivity-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 15px;
+            align-items: end;
+        }
+
+        .sensitivity-btn {
+            padding: 10px 20px;
+            background: #74b9ff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .sensitivity-btn:hover {
+            background: #0984e3;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .option-type-buttons {
+                grid-template-columns: 1fr;
+            }
+
+            .sensitivity-form {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+<meta name="color-scheme" content="light dark" />
+<link rel="prefetch" href="./js/modules/advanced-charting.js" as="script" />
+<link rel="prefetch" href="./js/modules/video-conference.js" as="script" />
+</head>
+<body>
+    <div class="real-options-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Real Options Analysis</h1>
+            <p>Advanced option pricing for strategic investment decisions</p>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Left Panel - Input -->
+            <div class="left-panel">
+                <!-- Option Type Selector -->
+                <div class="option-type-selector">
+                    <h3>Option Type</h3>
+                    <div class="option-type-buttons">
+                        <button class="option-type-btn active" data-type="expansion">Expansion</button>
+                        <button class="option-type-btn" data-type="abandonment">Abandonment</button>
+                        <button class="option-type-btn" data-type="timing">Timing</button>
+                        <button class="option-type-btn" data-type="compound">Compound</button>
+                    </div>
+                </div>
+
+                <!-- Parameter Form -->
+                <div class="parameter-form">
+                    <h3>Parameters</h3>
+                    <div id="parameter-form-container">
+                        <!-- Form will be dynamically generated -->
+                    </div>
+                </div>
+
+                <!-- Scenario Selector -->
+                <div class="scenario-selector">
+                    <h3>Predefined Scenarios</h3>
+                    <select id="scenario-dropdown" class="scenario-dropdown">
+                        <option value="">Select a scenario...</option>
+                    </select>
+                </div>
+
+                <!-- Calculate Button -->
+                <button id="calculate-btn" class="calculate-btn">Calculate Option Value</button>
+
+                <!-- Sensitivity Analysis Controls -->
+                <div class="sensitivity-controls">
+                    <h4>Sensitivity Analysis</h4>
+                    <div class="sensitivity-form">
+                        <div class="form-group">
+                            <label for="sensitivity-parameter">Parameter</label>
+                            <select id="sensitivity-parameter" class="form-control">
+                                <option value="volatility">Volatility</option>
+                                <option value="time_to_expiry">Time to Expiry</option>
+                                <option value="risk_free_rate">Risk-Free Rate</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="sensitivity-range">Range</label>
+                            <input type="text" id="sensitivity-range" class="form-control" placeholder="0.1,0.2,0.3,0.4,0.5">
+                        </div>
+                        <button id="sensitivity-btn" class="sensitivity-btn">Run Sensitivity</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Results -->
+            <div class="right-panel">
+                <!-- Results Section -->
+                <div class="results-section">
+                    <h3>Results</h3>
+                    <div id="results-container">
+                        <div class="loading">Select an option type and enter parameters to begin analysis</div>
+                    </div>
+                </div>
+
+                <!-- Charts Section -->
+                <div class="charts-section">
+                    <h3>Visualizations</h3>
+                    
+                    <!-- Option Value Chart -->
+                    <div class="chart-container">
+                        <h4>Option Value Breakdown</h4>
+                        <div class="chart-canvas">
+                            <canvas id="option-value-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Greeks Analysis Chart -->
+                    <div class="chart-container">
+                        <h4>Option Greeks Analysis</h4>
+                        <div class="chart-canvas">
+                            <canvas id="greeks-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Sensitivity Analysis Chart -->
+                    <div class="chart-container">
+                        <h4>Sensitivity Analysis</h4>
+                        <div class="chart-canvas">
+                            <canvas id="sensitivity-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Option Value vs Price Chart -->
+                    <div class="chart-container">
+                        <h4>Option Value vs Underlying Price</h4>
+                        <div class="chart-canvas">
+                            <canvas id="option-price-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/modules/backend.js"></script>
+    <script src="js/modules/real-options.js"></script>
+    <script type="module">
+      import { setupSWUpdateBanner } from './js/modules/sw-update.js';
+      setupSWUpdateBanner();
+    </script>
+
+    <script type="module">
+      // Lazy-load heavy modules after first interaction/idle for performance
+      const lazyModules = [
+        './js/modules/advanced-charting.js',
+        './js/modules/video-conference.js'
+      ];
+      function lazyImport() {
+        lazyModules.forEach((m) => import(m).catch(() => {}));
+        window.removeEventListener('pointerdown', lazyImportOnce);
+        window.removeEventListener('keydown', lazyImportOnce);
+      }
+      function lazyImportOnce() { lazyImport(); }
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => lazyImport());
+      } else {
+        setTimeout(() => lazyImport(), 1500);
+      }
+      window.addEventListener('pointerdown', lazyImportOnce, { once: true });
+      window.addEventListener('keydown', lazyImportOnce, { once: true });
+
+      // Long task observer
+      if ('PerformanceObserver' in window) {
+        try {
+          const po = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              if (entry.duration > 50) {
+                console.info('[Perf] Long task detected', { duration: entry.duration.toFixed(1) + 'ms' });
+              }
+            }
+          });
+          po.observe({ entryTypes: ['longtask'] });
+        } catch {}
+      }
+    </script>
+
+    <script>
+        // Initialize Real Options Analysis
+        let realOptionsAnalysis;
+        let currentOptionType = 'expansion';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize the real options analysis module
+            realOptionsAnalysis = new RealOptionsAnalysis();
+            
+            // Set up event listeners
+            setupEventListeners();
+            
+            // Load initial form
+            loadOptionForm('expansion');
+        });
+
+        function setupEventListeners() {
+            // Option type buttons
+            document.querySelectorAll('.option-type-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const optionType = this.dataset.type;
+                    currentOptionType = optionType;
+                    
+                    // Update active button
+                    document.querySelectorAll('.option-type-btn').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    // Load form for selected option type
+                    loadOptionForm(optionType);
+                    
+                    // Clear results
+                    clearResults();
+                });
+            });
+
+            // Calculate button
+            document.getElementById('calculate-btn').addEventListener('click', calculateOption);
+
+            // Scenario dropdown
+            document.getElementById('scenario-dropdown').addEventListener('change', function() {
+                const selectedScenario = this.value;
+                if (selectedScenario) {
+                    loadScenario(selectedScenario);
+                }
+            });
+
+            // Sensitivity analysis button
+            document.getElementById('sensitivity-btn').addEventListener('click', runSensitivityAnalysis);
+        }
+
+        function loadOptionForm(optionType) {
+            const container = document.getElementById('parameter-form-container');
+            container.innerHTML = realOptionsAnalysis.createParameterForm(optionType);
+            
+            // Load scenarios for this option type
+            loadScenarios(optionType);
+        }
+
+        function loadScenarios(optionType) {
+            const dropdown = document.getElementById('scenario-dropdown');
+            dropdown.innerHTML = '<option value="">Select a scenario...</option>';
+            
+            if (realOptionsAnalysis.predefinedScenarios) {
+                const scenarios = realOptionsAnalysis.predefinedScenarios[`${optionType}_scenarios`] || [];
+                scenarios.forEach((scenario, index) => {
+                    const option = document.createElement('option');
+                    option.value = index;
+                    option.textContent = scenario.name;
+                    dropdown.appendChild(option);
+                });
+            }
+        }
+
+        function loadScenario(scenarioIndex) {
+            const optionType = currentOptionType;
+            const scenarios = realOptionsAnalysis.predefinedScenarios[`${optionType}_scenarios`];
+            
+            if (scenarios && scenarios[scenarioIndex]) {
+                const scenario = scenarios[scenarioIndex];
+                realOptionsAnalysis.loadScenario(scenario);
+            }
+        }
+
+        async function calculateOption() {
+            const calculateBtn = document.getElementById('calculate-btn');
+            const resultsContainer = document.getElementById('results-container');
+            
+            try {
+                // Disable button and show loading
+                calculateBtn.disabled = true;
+                calculateBtn.textContent = 'Calculating...';
+                resultsContainer.innerHTML = '<div class="loading">Calculating option value...</div>';
+                
+                // Get parameters from form
+                const params = realOptionsAnalysis.getFormParameters(currentOptionType);
+                
+                // Calculate option value based on type
+                let results;
+                switch (currentOptionType) {
+                    case 'expansion':
+                        results = await realOptionsAnalysis.calculateExpansionOption(params);
+                        break;
+                    case 'abandonment':
+                        results = await realOptionsAnalysis.calculateAbandonmentOption(params);
+                        break;
+                    case 'timing':
+                        results = await realOptionsAnalysis.calculateTimingOption(params);
+                        break;
+                    case 'compound':
+                        results = await realOptionsAnalysis.calculateCompoundOption(params);
+                        break;
+                    default:
+                        throw new Error('Unknown option type');
+                }
+                
+                // Display results
+                displayResults(results);
+                
+                // Render charts
+                renderCharts(results);
+                
+            } catch (error) {
+                console.error('Error calculating option:', error);
+                resultsContainer.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            } finally {
+                // Re-enable button
+                calculateBtn.disabled = false;
+                calculateBtn.textContent = 'Calculate Option Value';
+            }
+        }
+
+        function displayResults(results) {
+            const resultsContainer = document.getElementById('results-container');
+            resultsContainer.innerHTML = realOptionsAnalysis.createResultsSummary(results);
+        }
+
+        function renderCharts(results) {
+            // Render option value chart
+            realOptionsAnalysis.renderOptionValueChart('option-value-chart', results);
+            
+            // Render Greeks chart if available
+            if (results.delta !== undefined) {
+                const greeks = {
+                    delta: results.delta,
+                    gamma: results.gamma,
+                    theta: results.theta,
+                    vega: results.vega,
+                    rho: results.rho
+                };
+                realOptionsAnalysis.renderGreeksAnalysis('greeks-chart', greeks);
+            }
+            
+            // Render option value vs price chart
+            const priceRange = {
+                min: results.current_value * 0.5,
+                max: results.current_value * 1.5,
+                step: results.current_value * 0.01
+            };
+            realOptionsAnalysis.renderOptionValueVsPrice('option-price-chart', results, priceRange);
+        }
+
+        async function runSensitivityAnalysis() {
+            const sensitivityBtn = document.getElementById('sensitivity-btn');
+            const sensitivityChart = document.getElementById('sensitivity-chart');
+            
+            try {
+                sensitivityBtn.disabled = true;
+                sensitivityBtn.textContent = 'Running...';
+                
+                // Get sensitivity parameters
+                const parameter = document.getElementById('sensitivity-parameter').value;
+                const rangeText = document.getElementById('sensitivity-range').value;
+                const rangeValues = rangeText.split(',').map(v => parseFloat(v.trim()));
+                
+                // Get base parameters
+                const baseParams = realOptionsAnalysis.getFormParameters(currentOptionType);
+                baseParams.option_type = currentOptionType;
+                
+                // Run sensitivity analysis
+                const sensitivityData = await realOptionsAnalysis.runSensitivityAnalysis(
+                    baseParams, parameter, rangeValues
+                );
+                
+                // Render sensitivity chart
+                realOptionsAnalysis.renderSensitivityHeatmap('sensitivity-chart', sensitivityData);
+                
+            } catch (error) {
+                console.error('Error running sensitivity analysis:', error);
+                alert(`Error: ${error.message}`);
+            } finally {
+                sensitivityBtn.disabled = false;
+                sensitivityBtn.textContent = 'Run Sensitivity';
+            }
+        }
+
+        function clearResults() {
+            const resultsContainer = document.getElementById('results-container');
+            resultsContainer.innerHTML = '<div class="loading">Select an option type and enter parameters to begin analysis</div>';
+            
+            // Clear charts
+            realOptionsAnalysis.clearCharts();
+        }
+
+        // Handle page unload
+        window.addEventListener('beforeunload', function() {
+            if (realOptionsAnalysis) {
+                realOptionsAnalysis.destroy();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,262 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: valor-ivx
+  labels:
+    name: valor-ivx
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: valor-ivx-config
+  namespace: valor-ivx
+data:
+  FLASK_ENV: "production"
+  LOG_LEVEL: "INFO"
+  FEATURE_PROMETHEUS_METRICS: "true"
+  CIRCUIT_BREAKER_ENABLED: "true"
+  ALPHA_VANTAGE_RATE_LIMIT: "5"
+  RETRY_MAX_ATTEMPTS: "3"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: valor-ivx-secrets
+  namespace: valor-ivx
+type: Opaque
+data:
+  SECRET_KEY: <base64-encoded-secret-key>
+  JWT_SECRET_KEY: <base64-encoded-jwt-secret>
+  ALPHA_VANTAGE_API_KEY: <base64-encoded-api-key>
+  POSTGRES_PASSWORD: <base64-encoded-password>
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valor-backend
+  namespace: valor-ivx
+  labels:
+    app: valor-backend
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: valor-backend
+  template:
+    metadata:
+      labels:
+        app: valor-backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5002"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+      - name: valor-backend
+        image: valor-ivx-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5002
+          name: http
+        env:
+        - name: FLASK_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: valor-ivx-config
+              key: FLASK_ENV
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: valor-ivx-config
+              key: LOG_LEVEL
+        - name: FEATURE_PROMETHEUS_METRICS
+          valueFrom:
+            configMapKeyRef:
+              name: valor-ivx-config
+              key: FEATURE_PROMETHEUS_METRICS
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: valor-ivx-secrets
+              key: SECRET_KEY
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: valor-ivx-secrets
+              key: JWT_SECRET_KEY
+        - name: ALPHA_VANTAGE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: valor-ivx-secrets
+              key: ALPHA_VANTAGE_API_KEY
+        - name: DATABASE_URL
+          value: "postgresql://valor_user:$(POSTGRES_PASSWORD)@valor-postgres:5432/valor_ivx"
+        - name: REDIS_URL
+          value: "redis://valor-redis:6379/0"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 5002
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/readiness
+            port: 5002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: uploads
+          mountPath: /app/uploads
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: valor-uploads-pvc
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: valor-backend-hpa
+  namespace: valor-ivx
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: valor-backend
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valor-backend-service
+  namespace: valor-ivx
+  labels:
+    app: valor-backend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 5002
+    protocol: TCP
+    name: http
+  selector:
+    app: valor-backend
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: valor-ivx-ingress
+  namespace: valor-ivx
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+  - hosts:
+    - valor-ivx.example.com
+    secretName: valor-ivx-tls
+  rules:
+  - host: valor-ivx.example.com
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: valor-backend-service
+            port:
+              number: 80
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: valor-frontend-service
+            port:
+              number: 80
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valor-uploads-pvc
+  namespace: valor-ivx
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: valor-backend-pdb
+  namespace: valor-ivx
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: valor-backend 

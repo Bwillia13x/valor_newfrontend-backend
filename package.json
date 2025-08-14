@@ -1,0 +1,64 @@
+{
+  "name": "valor-ivx",
+  "version": "1.0.0",
+  "description": "Valor IVX - Advanced DCF Modeling Tool with Monte Carlo Simulations",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "dev": "python3 -m http.server 8000",
+    "serve": "python3 -m http.server 8000",
+    "test": "vitest",
+    "test:js": "vitest --run",
+    "test:js:ci": "vitest --run --coverage",
+    "test:ui": "playwright test",
+    "test:ui:headed": "playwright test --headed",
+    "test:ui:report": "playwright show-report",
+    "build": "echo \"No build step required - pure HTML/CSS/JS\"",
+    "lint": "eslint \"js/**/*.js\" --max-warnings=0",
+    "lint:fix": "eslint \"js/**/*.js\" --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "postinstall": "npx playwright install --with-deps || true",
+  "perf:smoke": "LOCUST_BASE_URL=http://localhost:8000 PERF_PROFILE=smoke locust -f tests/performance/locustfile.py --headless -u 5 -r 2 -t 30s --csv=tests/performance/artifacts/smoke",
+  "perf:baseline": "LOCUST_BASE_URL=http://localhost:8000 PERF_PROFILE=baseline locust -f tests/performance/locustfile.py --headless -u 50 -r 10 -t 2m --csv=tests/performance/artifacts/baseline"
+  },
+  "keywords": [
+    "dcf",
+    "financial-modeling",
+    "monte-carlo",
+    "valuation",
+    "investment-analysis",
+    "javascript",
+    "canvas",
+    "charts"
+  ],
+  "author": "Valor IVX Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/valor-ivx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/valor-ivx/issues"
+  },
+  "homepage": "https://github.com/your-org/valor-ivx#readme",
+  "devDependencies": {
+    "vitest": "^1.6.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "jsdom": "^24.0.0",
+    "@playwright/test": "^1.45.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.3"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead"
+  ]
+}

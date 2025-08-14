@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Valor IVX — LBO Analysis</title>
+<link rel="stylesheet" href="./styles.css">
+<meta name="color-scheme" content="light dark" />
+<link rel="prefetch" href="./js/modules/advanced-charting.js" as="script" />
+<link rel="prefetch" href="./js/modules/video-conference.js" as="script" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"></div>
+      <div>
+        <h1>Valor IVX</h1>
+        <small>Leveraged Buyout Analysis</small>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="lboPreset" title="Load sample LBO assumptions"><span class="kbd">P</span>&nbsp;Preset</button>
+      <button id="lboReset">Reset</button>
+      <button id="runLBO" class="primary"><span class="kbd">Enter</span>&nbsp;Run LBO</button>
+      <button id="exportLBOJSON" title="Export LBO inputs and results as JSON">Export JSON</button>
+      <button id="importLBOJSON" title="Import a JSON LBO run">Import JSON</button>
+      <button id="sendLBORun" title="POST LBO run JSON to backend">Save to Backend</button>
+      <button id="loadLastLBORun" title="GET last LBO run from backend">Load Last Run</button>
+      <input id="importLBOJSONFile" type="file" accept="application/json" style="display:none" />
+      <button id="exportLBOCSV" title="Export LBO cash flows as CSV">Export CSV</button>
+      <button id="openDCF" title="Switch to DCF Analysis">DCF Model</button>
+    </div>
+  </header>
+
+  <main id="main" class="layout">
+    <!-- Left: LBO Inputs -->
+    <section class="panel" aria-labelledby="lboInputsTitle">
+      <h2 id="lboInputsTitle">LBO Assumptions</h2>
+
+      <div class="section">
+        <div class="grid">
+          <div class="col">
+            <label for="lboCompanyName">Target Company</label>
+            <input id="lboCompanyName" type="text" value="Sample Target" placeholder="e.g., Target Corp" title="Target company name" />
+          </div>
+          <div class="col">
+            <label for="lboPurchasePrice">Purchase Price (MM)</label>
+            <div class="input-affix">
+              <input id="lboPurchasePrice" type="number" step="0.01" value="1000" placeholder="e.g., 1000" title="Total purchase price in USD millions" />
+              <span class="affix">$MM</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="grid">
+          <div class="col">
+            <label for="lboEquityContribution">Equity Contribution (MM)</label>
+            <div class="input-affix">
+              <input id="lboEquityContribution" type="number" step="0.01" value="400" placeholder="e.g., 400" title="Equity investment in USD millions" />
+              <span class="affix">$MM</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboRevenue">Current Revenue (MM)</label>
+            <div class="input-affix">
+              <input id="lboRevenue" type="number" step="0.01" value="500" placeholder="e.g., 500" title="Current revenue in USD millions" />
+              <span class="affix">$MM</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="grid">
+          <div class="col">
+            <label for="lboEbitdaMargin">EBITDA Margin %</label>
+            <div class="input-affix">
+              <input id="lboEbitdaMargin" type="number" step="0.1" value="20" placeholder="e.g., 20.0" title="EBITDA margin in percent" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboRevenueGrowth">Revenue Growth %</label>
+            <div class="input-affix">
+              <input id="lboRevenueGrowth" type="number" step="0.1" value="8" placeholder="e.g., 8.0" title="Annual revenue growth in percent" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboGrowthDecay">Growth Decay (pp/yr)</label>
+            <div class="input-affix">
+              <input id="lboGrowthDecay" type="number" step="0.1" value="1" placeholder="e.g., 1.0" title="Growth decay in percentage points per year" />
+              <span class="affix">pp</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboYears">Projection Years</label>
+            <input id="lboYears" type="number" min="3" max="10" value="5" placeholder="3 to 10" title="Projection period in years" />
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="grid">
+          <div class="col">
+            <label for="lboTaxRate">Tax Rate %</label>
+            <div class="input-affix">
+              <input id="lboTaxRate" type="number" step="0.1" value="25" placeholder="e.g., 25.0" title="Corporate tax rate in percent" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboDepreciationRatio">Depreciation % of Revenue</label>
+            <div class="input-affix">
+              <input id="lboDepreciationRatio" type="number" step="0.1" value="3" placeholder="e.g., 3.0" title="Depreciation as percent of revenue" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboCapexRatio">CapEx % of Revenue</label>
+            <div class="input-affix">
+              <input id="lboCapexRatio" type="number" step="0.1" value="4" placeholder="e.g., 4.0" title="Capital expenditures as percent of revenue" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboWorkingCapitalRatio">Working Capital % of Revenue</label>
+            <div class="input-affix">
+              <input id="lboWorkingCapitalRatio" type="number" step="0.1" value="15" placeholder="e.g., 15.0" title="Working capital as percent of revenue" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Debt Structure</h3>
+        <div class="grid">
+          <div class="col">
+            <label for="lboSeniorDebtRatio">Senior Debt %</label>
+            <div class="input-affix">
+              <input id="lboSeniorDebtRatio" type="number" step="0.1" value="60" placeholder="e.g., 60.0" title="Senior debt as percent of total debt" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboMezzanineDebtRatio">Mezzanine Debt %</label>
+            <div class="input-affix">
+              <input id="lboMezzanineDebtRatio" type="number" step="0.1" value="30" placeholder="e.g., 30.0" title="Mezzanine debt as percent of total debt" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboHighYieldDebtRatio">High Yield Debt %</label>
+            <div class="input-affix">
+              <input id="lboHighYieldDebtRatio" type="number" step="0.1" value="10" placeholder="e.g., 10.0" title="High yield debt as percent of total debt" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Interest Rates</h3>
+        <div class="grid">
+          <div class="col">
+            <label for="lboSeniorDebtRate">Senior Debt Rate %</label>
+            <div class="input-affix">
+              <input id="lboSeniorDebtRate" type="number" step="0.1" value="6" placeholder="e.g., 6.0" title="Senior debt interest rate in percent" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboMezzanineDebtRate">Mezzanine Rate %</label>
+            <div class="input-affix">
+              <input id="lboMezzanineDebtRate" type="number" step="0.1" value="10" placeholder="e.g., 10.0" title="Mezzanine debt interest rate in percent" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+          <div class="col">
+            <label for="lboHighYieldDebtRate">High Yield Rate %</label>
+            <div class="input-affix">
+              <input id="lboHighYieldDebtRate" type="number" step="0.1" value="12" placeholder="e.g., 12.0" title="High yield debt interest rate in percent" />
+              <span class="affix">%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>LBO Scenarios</h3>
+        <div class="grid">
+          <div class="col">
+            <label for="lboScenarioName">Scenario Name</label>
+            <input id="lboScenarioName" type="text" placeholder="e.g., Base Case" title="Name for this scenario" />
+          </div>
+          <div class="col">
+            <button id="saveLBOScenario" class="btn">Save Scenario</button>
+            <button id="applyLBOScenario" class="btn">Apply Scenario</button>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="col">
+            <select id="lboScenarioSelect" title="Select saved scenario">
+              <option value="">Select Scenario...</option>
+            </select>
+          </div>
+          <div class="col">
+            <button id="deleteLBOScenario" class="btn">Delete Scenario</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right: LBO Results -->
+    <section class="panel" aria-labelledby="lboResultsTitle">
+      <h2 id="lboResultsTitle">LBO Analysis Results</h2>
+
+      <!-- Key Metrics -->
+      <div class="outputs" id="lboMetrics">
+        <div class="metric">
+          <div class="k">Leverage Ratio</div>
+          <div class="v" id="leverageRatio">-</div>
+        </div>
+        <div class="metric">
+          <div class="k">WACD</div>
+          <div class="v" id="wacd">-</div>
+        </div>
+        <div class="metric">
+          <div class="k">Final EBITDA</div>
+          <div class="v" id="finalEbitda">-</div>
+        </div>
+        <div class="metric">
+          <div class="k">Final Debt</div>
+          <div class="v" id="finalDebt">-</div>
+        </div>
+        <div class="metric">
+          <div class="k">Avg IRR</div>
+          <div class="v" id="avgIRR">-</div>
+        </div>
+        <div class="metric">
+          <div class="k">Avg MOIC</div>
+          <div class="v" id="avgMOIC">-</div>
+        </div>
+      </div>
+
+      <!-- Exit Scenarios -->
+      <div class="section">
+        <h3>Exit Scenarios</h3>
+        <div class="tabs">
+          <button class="tab active" data-tab="exit-multiples">Exit Multiples</button>
+          <button class="tab" data-tab="exit-irrs">Target IRRs</button>
+        </div>
+        
+        <div id="exit-multiples" class="tab-content active">
+          <table class="kpitable" id="exitMultiplesTable">
+            <thead>
+              <tr>
+                <th>Exit Multiple</th>
+                <th>Exit Value</th>
+                <th>Remaining Debt</th>
+                <th>Equity Value</th>
+                <th>IRR</th>
+                <th>MOIC</th>
+              </tr>
+            </thead>
+            <tbody id="exitMultiplesBody">
+              <tr><td colspan="6">Run analysis to see results</td></tr>
+            </tbody>
+          </table>
+        </div>
+        
+        <div id="exit-irrs" class="tab-content">
+          <table class="kpitable" id="exitIRRsTable">
+            <thead>
+              <tr>
+                <th>Target IRR</th>
+                <th>Required Exit Value</th>
+                <th>Implied Multiple</th>
+                <th>Equity Value</th>
+              </tr>
+            </thead>
+            <tbody id="exitIRRsBody">
+              <tr><td colspan="4">Run analysis to see results</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="charts">
+        <div class="chart-wrap">
+          <h3>Cash Flow Projection</h3>
+          <canvas id="lboCashFlowChart"></canvas>
+        </div>
+        <div class="chart-wrap">
+          <h3>Debt Paydown</h3>
+          <canvas id="lboDebtChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Terminal Output -->
+      <div class="terminal" id="lboTerminal">
+        <div class="term-line">LBO Analysis Terminal</div>
+        <div class="term-line">Ready to run analysis...</div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./js/lbo-main.js"></script>
+  <script type="module">
+    import { setupSWUpdateBanner } from './js/modules/sw-update.js';
+    setupSWUpdateBanner();
+  </script>
+<script type="module">
+  // Lazy-load heavy modules after first interaction/idle for performance
+  const lazyModules = [
+    './js/modules/advanced-charting.js',
+    './js/modules/video-conference.js'
+  ];
+  function lazyImport() {
+    lazyModules.forEach((m) => import(m).catch(() => {}));
+    window.removeEventListener('pointerdown', lazyImportOnce);
+    window.removeEventListener('keydown', lazyImportOnce);
+  }
+  function lazyImportOnce() { lazyImport(); }
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(() => lazyImport());
+  } else {
+    setTimeout(() => lazyImport(), 1500);
+  }
+  window.addEventListener('pointerdown', lazyImportOnce, { once: true });
+  window.addEventListener('keydown', lazyImportOnce, { once: true });
+
+  // Long task observer
+  if ('PerformanceObserver' in window) {
+    try {
+      const po = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (entry.duration > 50) {
+            console.info('[Perf] Long task detected', { duration: entry.duration.toFixed(1) + 'ms' });
+          }
+        }
+      });
+      po.observe({ entryTypes: ['longtask'] });
+    } catch {}
+  }
+</script>
+</body>
+</html>
