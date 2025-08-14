@@ -130,6 +130,10 @@ app.register_blueprint(ai_insights_bp)
 app.register_blueprint(ml_management_bp)
 app.register_blueprint(tenant_management_bp)
 
+# Register Phase 11: Performance & Optimization blueprints
+from api.performance_routes import performance_bp
+app.register_blueprint(performance_bp)
+
 # Jinja2 environment for report templates
 _templates_path = os.path.join(os.path.dirname(__file__), "reports", "templates")
 _jinja_env = Environment(
